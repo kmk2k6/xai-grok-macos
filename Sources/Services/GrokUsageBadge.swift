@@ -2,10 +2,10 @@
 //  GrokUsageBadge.swift
 //  Grok for Mac
 //
-//  Adds a compact usage bolt beside the grok.com sidebar profile name. The
-//  bolt opens Grok's own Usage UI instead of recreating it or scraping usage
-//  data. If Grok exposes a total percentage in that already-open dialog, the
-//  value is cached locally as an optional convenience label.
+//  Compact usage bolt on the same row as the grok.com sidebar profile name.
+//  One click hard-loads the current page with ?_s=usage. Grok's settings store
+//  reads that param only in its constructor, so a soft history update does not
+//  open Usage. Do not walk Account / Payments menus.
 //
 
 import Foundation
@@ -124,35 +124,6 @@ enum GrokUsageBadge {
             return best;
           }
 
-          function actionLabel(el) {
-            return (el.getAttribute("aria-label") || el.getAttribute("title") || textOf(el)).replace(/\\s+/g, " ").trim();
-          }
-
-          function findAction(labels) {
-            var wanted = labels.map(function(label) { return String(label).toLowerCase(); });
-            var nodes = document.querySelectorAll("button, a, [role='button'], [role='menuitem'], [role='tab']");
-            var fallback = null;
-            for (var i = 0; i < nodes.length; i++) {
-              var el = nodes[i];
-              if (!visible(el) || el.id === "grok-native-usage-bolt") continue;
-              var label = actionLabel(el).toLowerCase();
-              if (!label) continue;
-              if (wanted.indexOf(label) >= 0) return el;
-              if (!fallback && wanted.some(function(w) { return label === w + " details" || label.indexOf(w + " ") === 0; })) fallback = el;
-            }
-            return fallback;
-          }
-
-          function clickElement(el) {
-            if (!el) return false;
-            try {
-              el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-            } catch (e) {
-              try { el.click(); } catch (ignored) {}
-            }
-            return true;
-          }
-
           function usagePercentFromText(text) {
             if (!text || !/\\busage\\b/i.test(text)) return null;
             var matches = [];
@@ -182,29 +153,23 @@ enum GrokUsageBadge {
           function scheduleCapture() {
             setTimeout(capturePercentFromOpenUsageDialog, 450);
             setTimeout(capturePercentFromOpenUsageDialog, 1100);
-          }
-
-          function clickVisibleUsage() {
-            var usage = findAction(["usage", "usage details"]);
-            if (!usage) return false;
-            clickElement(usage);
-            scheduleCapture();
-            return true;
+            setTimeout(capturePercentFromOpenUsageDialog, 2200);
           }
 
           function openUsageDetails() {
             if (window.__grokUsageBoltOpening) return;
             window.__grokUsageBoltOpening = true;
-
-            // Grok's Settings dialog is URL-addressable. `_s=usage` is the
-            // same deep link used by the native Settings > Usage tab. Go
-            // there directly so the bolt never opens Account/Payments menus
-            // or accidentally activates a chat usage indicator.
+            // Keep the open chat. Only the settings query changes.
+            // A full load is required: useSettingsDialogStore applies _s
+            // once, in its constructor. history.replaceState will not open it.
             var target = new URL(window.location.href);
-            target.pathname = "/";
             target.hash = "";
-            target.search = "";
+            var already = target.searchParams.get("_s") === "usage";
             target.searchParams.set("_s", "usage");
+            if (already) {
+              window.location.reload();
+              return;
+            }
             window.location.assign(target.toString());
           }
 
@@ -215,11 +180,12 @@ enum GrokUsageBadge {
             style.textContent = [
               "#grok-native-usage-bolt{",
               "display:inline-flex;align-items:center;justify-content:center;",
-              "box-sizing:border-box;margin-left:7px;padding:0 5px;min-width:22px;height:22px;",
+              "box-sizing:border-box;flex:0 0 auto;align-self:center;",
+              "margin:0 0 0 8px;padding:0 5px;min-width:22px;height:22px;",
               "border:1px solid rgba(255,255,255,.14);border-radius:6px;",
               "background:rgba(255,255,255,.07);color:rgba(255,255,255,.78);",
               "font:600 14px/20px -apple-system,BlinkMacSystemFont,sans-serif;",
-              "cursor:pointer;user-select:none;vertical-align:middle;",
+              "cursor:pointer;user-select:none;white-space:nowrap;",
               "transition:background .12s ease,color .12s ease;",
               "}",
               "#grok-native-usage-bolt:hover{background:rgba(255,255,255,.16);color:#fff;}",
@@ -228,6 +194,12 @@ enum GrokUsageBadge {
               "#grok-native-usage-bolt[data-level='danger']{color:#f87171;border-color:rgba(248,113,113,.45);}"
             ].join("");
             (document.head || document.documentElement).appendChild(style);
+          }
+
+          function swallow(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
           }
 
           function attachBolt(profile) {
@@ -240,19 +212,19 @@ enum GrokUsageBadge {
               bolt.setAttribute("tabindex", "0");
               bolt.setAttribute("aria-label", "Open usage details");
               bolt.title = "Open usage details";
-              bolt.textContent = "ϟ";
-              bolt.addEventListener("click", function(event) {
-                event.preventDefault();
-                event.stopPropagation();
+              bolt.textContent = "\u03df";
+              bolt.addEventListener("pointerdown", function(event) {
+                swallow(event);
                 openUsageDetails();
-              });
+              }, true);
+              bolt.addEventListener("mousedown", swallow, true);
+              bolt.addEventListener("click", swallow, true);
               bolt.addEventListener("keydown", function(event) {
                 if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  event.stopPropagation();
+                  swallow(event);
                   openUsageDetails();
                 }
-              });
+              }, true);
             }
 
             var nameEl = null;
@@ -264,10 +236,16 @@ enum GrokUsageBadge {
                 break;
               }
             }
-            var target = nameEl || profile.el;
-            if (bolt.parentElement !== target) {
+            var line = nameEl || profile.el;
+            line.style.display = "flex";
+            line.style.alignItems = "center";
+            line.style.flexWrap = "nowrap";
+            line.style.width = "100%";
+            line.style.minWidth = "0";
+            line.style.gap = "6px";
+            if (bolt.parentElement !== line) {
               if (bolt.parentElement) bolt.parentElement.removeChild(bolt);
-              target.appendChild(bolt);
+              line.appendChild(bolt);
             }
             return bolt;
           }
@@ -276,11 +254,11 @@ enum GrokUsageBadge {
             var profile = findProfileHost();
             if (!profile) return;
             var bolt = attachBolt(profile);
-            bolt.textContent = state.percent == null ? "ϟ" : "ϟ " + state.percent + "%";
+            bolt.textContent = state.percent == null ? "\u03df" : "\u03df " + state.percent + "%";
             bolt.setAttribute("aria-label", state.percent == null ? "Open usage details" : "Open usage details (" + state.percent + "% used)");
             bolt.title = state.percent == null ? "Open usage details" : "Open usage details (" + state.percent + "% used)";
-            if (state.percent >= 90) bolt.setAttribute("data-level", "danger");
-            else if (state.percent >= 70) bolt.setAttribute("data-level", "warn");
+            if (state.percent != null && state.percent >= 90) bolt.setAttribute("data-level", "danger");
+            else if (state.percent != null && state.percent >= 70) bolt.setAttribute("data-level", "warn");
             else bolt.removeAttribute("data-level");
           }
 
@@ -294,6 +272,9 @@ enum GrokUsageBadge {
 
           ensureStyle();
           render();
+          try {
+            if (new URL(window.location.href).searchParams.get("_s") === "usage") scheduleCapture();
+          } catch (e) {}
           var observer = new MutationObserver(function() {
             if (window.__grokUsageBoltMOTimer) return;
             window.__grokUsageBoltMOTimer = setTimeout(function() {
