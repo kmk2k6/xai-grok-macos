@@ -27,11 +27,16 @@ class UpdateManager: NSObject {
     private override init() {
         super.init()
 
-        // Initialize Sparkle with standard UI
-        // startingUpdater: true enables the updater so it can check for updates
-        // This is REQUIRED for both manual and automatic update checks to work
+        // Local/Debug builds ship with placeholder Sparkle feed URL + public key
+        // ("your-domain.com" / "YOUR_SPARKLE_PUBLIC_KEY"), which makes Sparkle
+        // throw "The updater failed to start" on launch. Don't start it in Debug.
+        #if DEBUG
+        let startUpdater = false
+        #else
+        let startUpdater = true
+        #endif
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: startUpdater,
             updaterDelegate: self,
             userDriverDelegate: nil
         )

@@ -18,6 +18,11 @@
 		1A0000010000000000000011 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000020000000000000011 /* KeychainHelper.swift */; };
 		9303276B2EF5ACC000B7C3AF /* VoiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9303276A2EF5ACC000B7C3AF /* VoiceManager.swift */; };
 		93790E722EEA56F800FBB41D /* DeveloperRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93790E712EEA56F800FBB41D /* DeveloperRootView.swift */; };
+		1A0000G10000000000000001 /* GlassAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000G20000000000000001 /* GlassAppearance.swift */; };
+		1A0000G10000000000000002 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000G20000000000000002 /* SettingsManager.swift */; };
+		1A0000G10000000000000003 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000G20000000000000003 /* SettingsView.swift */; };
+		1A0000G10000000000000004 /* VisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000G20000000000000004 /* VisualEffectBackground.swift */; };
+		1A0000G10000000000000005 /* GrokUsageBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000G20000000000000005 /* GrokUsageBadge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +39,11 @@
 	1A0000030000000000000001 /* Grok.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Grok.app; sourceTree = BUILT_PRODUCTS_DIR; };
 	9303276A2EF5ACC000B7C3AF /* VoiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceManager.swift; sourceTree = "<group>"; };
 	93790E712EEA56F800FBB41D /* DeveloperRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeveloperRootView.swift; sourceTree = "<group>"; };
+		1A0000G20000000000000001 /* GlassAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassAppearance.swift; sourceTree = "<group>"; };
+		1A0000G20000000000000002 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
+		1A0000G20000000000000003 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1A0000G20000000000000004 /* VisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectBackground.swift; sourceTree = "<group>"; };
+		1A0000G20000000000000005 /* GrokUsageBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokUsageBadge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,6 +58,40 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1A0000G30000000000000001 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000G20000000000000001 /* GlassAppearance.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		1A0000G30000000000000002 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000G20000000000000002 /* SettingsManager.swift */,
+				1A0000G20000000000000005 /* GrokUsageBadge.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		1A0000G30000000000000004 /* Glass */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000G20000000000000004 /* VisualEffectBackground.swift */,
+			);
+			path = Glass;
+			sourceTree = "<group>";
+		};
+		1A0000G30000000000000003 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000G20000000000000003 /* SettingsView.swift */,
+				1A0000G30000000000000004 /* Glass */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
 	1A0000040000000000000001 = {
 		isa = PBXGroup;
 		children = (
@@ -66,6 +110,9 @@
 				1A0000020000000000000007 /* SettingsWindow.swift */,
 				1A0000050000000000000002 /* Managers */,
 				1A0000050000000000000003 /* Utils */,
+				1A0000G30000000000000001 /* Models */,
+				1A0000G30000000000000002 /* Services */,
+				1A0000G30000000000000003 /* Views */,
 				1A0000020000000000000004 /* Assets.xcassets */,
 				93790E712EEA56F800FBB41D /* DeveloperRootView.swift */,
 				1A0000020000000000000005 /* Info.plist */,
@@ -178,6 +225,11 @@
 				9303276B2EF5ACC000B7C3AF /* VoiceManager.swift in Sources */,
 				1A0000010000000000000009 /* UpdateManager.swift in Sources */,
 				1A0000010000000000000011 /* KeychainHelper.swift in Sources */,
+				1A0000G10000000000000001 /* GlassAppearance.swift in Sources */,
+				1A0000G10000000000000002 /* SettingsManager.swift in Sources */,
+				1A0000G10000000000000003 /* SettingsView.swift in Sources */,
+				1A0000G10000000000000004 /* VisualEffectBackground.swift in Sources */,
+				1A0000G10000000000000005 /* GrokUsageBadge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

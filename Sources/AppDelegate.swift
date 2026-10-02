@@ -17,6 +17,7 @@ import WebKit
 import Sparkle
 import AVFoundation
 import SwiftUI
+import Combine
 
 enum AppMode {
     case chat          // grok.com - AI chat
@@ -72,6 +73,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // View Management
     var mainContainerView: NSView!
+    /// Titlebar/toolbar glass strip only — web content stays opaque.
+    var chromeEffectView: NSVisualEffectView!
+    var chromeTintView: NSView!
+    var chromeBorderView: NSView!
+    private var glassObservation: AnyCancellable?
+    private var windowFrameObservation: NSObjectProtocol?
+    private var consoleWebViewLoaded = false
+    private var titlebarBackgroundView: NSView?
     var webView: WKWebView!
     var grokipediaWebView: WKWebView!
     var xWebView: WKWebView!
@@ -117,12 +126,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        // True-black chrome baseline (glass prefs can lighten titlebar only)
+        let grokChromeBlack = GlassAppearance.solidMatteNSColor // #000000
         window.title = "" // Hide title for cleaner look
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = false
+        window.titlebarAppearsTransparent = true // merge titlebar with content; keep fullSizeContentView
+        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         window.setFrameAutosaveName("GrokMainWindow")
-        window.backgroundColor = .windowBackgroundColor
+        window.backgroundColor = grokChromeBlack // NOT .windowBackgroundColor (warm/brown in dark mode)
         window.minSize = NSSize(width: 800, height: 600)
         window.isOpaque = true
         window.isReleasedWhenClosed = false // Keep window in memory when closed
@@ -149,18 +161,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let toolbar = NSToolbar(identifier: "MainToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
+        toolbar.sizeMode = .small
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact // Tighter/smaller toolbar
 
-        // Set up Container View
+        // Container: opaque web content + optional glass strip over titlebar/toolbar only
         mainContainerView = NSView(frame: .zero)
         mainContainerView.autoresizingMask = [.width, .height]
+        mainContainerView.wantsLayer = true
+        mainContainerView.layer?.backgroundColor = grokChromeBlack.cgColor
         window.contentView = mainContainerView
 
-        // Settings webView scaling
+        // Chrome glass strip (top). Hidden when prefs prefer solid matte.
+        chromeEffectView = NSVisualEffectView(frame: .zero)
+        chromeEffectView.blendingMode = .behindWindow
+        chromeEffectView.state = .active
+        chromeEffectView.autoresizingMask = [.width, .maxYMargin]
+        chromeEffectView.wantsLayer = true
+        mainContainerView.addSubview(chromeEffectView)
+
+        chromeTintView = NSView(frame: .zero)
+        chromeTintView.wantsLayer = true
+        chromeTintView.autoresizingMask = [.width, .maxYMargin]
+        mainContainerView.addSubview(chromeTintView)
+
+        chromeBorderView = NSView(frame: .zero)
+        chromeBorderView.wantsLayer = true
+        chromeBorderView.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        chromeBorderView.autoresizingMask = [.width, .maxYMargin]
+        mainContainerView.addSubview(chromeBorderView)
+
+        // WebView fills content; opaque under-page so glass never washes the page
         webView.autoresizingMask = [.width, .height]
         webView.frame = mainContainerView.bounds
-        mainContainerView.addSubview(webView)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = grokChromeBlack.cgColor
+        if #available(macOS 12.0, *) {
+            webView.underPageBackgroundColor = grokChromeBlack
+        }
+        mainContainerView.addSubview(webView, positioned: .below, relativeTo: chromeEffectView)
 
         // Pre-load Developer View (Grok Code Agent)
         let devView = NSHostingController(rootView: DeveloperRootView())
@@ -184,6 +226,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         grokipediaWebView.navigationDelegate = self
         grokipediaWebView.autoresizingMask = [.width, .height]
         grokipediaWebView.frame = mainContainerView.bounds
+        grokipediaWebView.setValue(false, forKey: "drawsBackground")
+        grokipediaWebView.wantsLayer = true
+        grokipediaWebView.layer?.backgroundColor = grokChromeBlack.cgColor
+        if #available(macOS 12.0, *) {
+            grokipediaWebView.underPageBackgroundColor = grokChromeBlack
+        }
         // Don't add as subview initially - just load
 
         // Pre-load Grokipedia
@@ -207,6 +255,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         xWebView.navigationDelegate = self
         xWebView.autoresizingMask = [.width, .height]
         xWebView.frame = mainContainerView.bounds
+        xWebView.setValue(false, forKey: "drawsBackground")
+        xWebView.wantsLayer = true
+        xWebView.layer?.backgroundColor = grokChromeBlack.cgColor
+        if #available(macOS 12.0, *) {
+            xWebView.underPageBackgroundColor = grokChromeBlack
+        }
 
         // Pre-load X.com
         if let xURL = URL(string: "https://x.com") {
@@ -229,6 +283,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chatXWebView.navigationDelegate = self
         chatXWebView.autoresizingMask = [.width, .height]
         chatXWebView.frame = mainContainerView.bounds
+        chatXWebView.setValue(false, forKey: "drawsBackground")
+        chatXWebView.wantsLayer = true
+        chatXWebView.layer?.backgroundColor = grokChromeBlack.cgColor
+        if #available(macOS 12.0, *) {
+            chatXWebView.underPageBackgroundColor = grokChromeBlack
+        }
 
         // Pre-load chat.x.com (X messaging)
         if let chatXURL = URL(string: "https://chat.x.com/") {
@@ -239,6 +299,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: "https://grok.com") {
             webView.load(URLRequest(url: url))
         }
+
+        // Apply chrome after all webviews exist; observe glass prefs + resize
+        applyGlassChrome()
+        glassObservation = SettingsManager.shared.$glassAppearance
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applyGlassChrome() }
+
+        windowFrameObservation = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in self?.layoutChromeStrip() }
         
         // Show window and make key
         window.makeKeyAndOrderFront(nil)
@@ -250,6 +322,127 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         inputWindow = InputWindow()
     }
     
+
+    // MARK: - Glass Chrome (titlebar / toolbar only)
+
+    /// Solid #000000 when glass off / low seeThrough; frosted strip over titlebar when dialed up.
+    /// WKWebView under-page stays opaque true black either way.
+    func applyGlassChrome() {
+        guard window != nil, mainContainerView != nil, chromeEffectView != nil else { return }
+        let g = SettingsManager.shared.glassAppearance
+        let solid = GlassAppearance.solidMatteNSColor
+
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+
+        // Always keep page content matte black (no brown system wash)
+        mainContainerView.wantsLayer = true
+        applyOpaqueWebChrome(solid)
+        applyTitlebarBackground(g.prefersSolidChrome ? solid : .clear)
+
+        if g.prefersSolidChrome {
+            window.isOpaque = true
+            window.backgroundColor = solid
+            mainContainerView.layer?.backgroundColor = solid.cgColor
+            chromeEffectView.isHidden = true
+            chromeTintView.isHidden = true
+            chromeBorderView.isHidden = true
+        } else {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            // Content area under chrome stays solid so page never goes translucent
+            mainContainerView.layer?.backgroundColor = solid.cgColor
+
+            chromeEffectView.isHidden = false
+            chromeEffectView.material = g.nsMaterial
+            chromeEffectView.alphaValue = CGFloat(g.windowEffectOpacity)
+
+            chromeTintView.isHidden = false
+            chromeTintView.layer?.backgroundColor = solid.withAlphaComponent(CGFloat(g.tintOpacity)).cgColor
+
+            let borderAlpha = CGFloat(g.borderOpacity(for: .dark))
+            chromeBorderView.isHidden = borderAlpha < 0.01
+            chromeBorderView.layer?.backgroundColor = NSColor.white.withAlphaComponent(borderAlpha).cgColor
+        }
+        layoutChromeStrip()
+    }
+
+    /// The content view does not always extend through the native titlebar when a
+    /// compact toolbar is attached. Paint a full-width native titlebar overlay so
+    /// the solid path cannot fall back to the warm system dark material.
+    private func applyTitlebarBackground(_ color: NSColor) {
+        guard let closeButton = window.standardWindowButton(.closeButton) else { return }
+
+        // Walk up from the traffic-light buttons to the full-width titlebar host.
+        // The first small button container is not wide enough to paint the strip.
+        var cursor: NSView? = closeButton
+        var titlebarHost: NSView?
+        while let view = cursor {
+            if view.frame.width >= window.frame.width * 0.8,
+               view.frame.height >= 30, view.frame.height <= 120 {
+                titlebarHost = view
+                break
+            }
+            cursor = view.superview
+        }
+        guard let host = titlebarHost ?? closeButton.superview?.superview else { return }
+
+        let overlay: NSView
+        if let existing = titlebarBackgroundView, existing.superview === host {
+            overlay = existing
+        } else {
+            titlebarBackgroundView?.removeFromSuperview()
+            overlay = NSView(frame: host.bounds)
+            overlay.autoresizingMask = [.width, .height]
+            overlay.wantsLayer = true
+            host.addSubview(overlay, positioned: .below, relativeTo: nil)
+            titlebarBackgroundView = overlay
+        }
+        overlay.frame = host.bounds
+        overlay.layer?.backgroundColor = color.cgColor
+    }
+
+    private func styleOpaqueWebView(_ wv: WKWebView, solid: NSColor) {
+        wv.wantsLayer = true
+        wv.layer?.backgroundColor = solid.cgColor
+        if #available(macOS 12.0, *) {
+            wv.underPageBackgroundColor = solid
+        }
+    }
+
+    private func applyOpaqueWebChrome(_ solid: NSColor) {
+        // All primary webviews are created before first applyGlassChrome()
+        styleOpaqueWebView(webView, solid: solid)
+        styleOpaqueWebView(grokipediaWebView, solid: solid)
+        styleOpaqueWebView(xWebView, solid: solid)
+        styleOpaqueWebView(chatXWebView, solid: solid)
+        if consoleWebViewLoaded {
+            styleOpaqueWebView(consoleWebView, solid: solid)
+        }
+    }
+
+    func layoutChromeStrip() {
+        guard let content = mainContainerView, window != nil,
+              chromeEffectView != nil else { return }
+        // Height of system titlebar+toolbar inside fullSizeContentView
+        let layout = window.contentLayoutRect
+        var chromeHeight = max(0, content.bounds.height - layout.height)
+        if chromeHeight < 1 {
+            // Fallback before window fully realized
+            chromeHeight = 52
+        }
+        let width = content.bounds.width
+        let y = content.bounds.height - chromeHeight
+        chromeEffectView.frame = NSRect(x: 0, y: y, width: width, height: chromeHeight)
+        chromeTintView.frame = chromeEffectView.frame
+        chromeBorderView.frame = NSRect(x: 0, y: y, width: width, height: 1)
+        // Keep chrome above web content
+        content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
+        content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
+        content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
+    }
+
     func setupStatusBar() {
         // Check if user wants menu bar icon (default to true)
         if !UserDefaults.standard.bool(forKey: "showMenuBarIcon") && UserDefaults.standard.object(forKey: "showMenuBarIcon") != nil {
@@ -828,6 +1021,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             wv.load(URLRequest(url: url))
         }
         wv.autoresizingMask = [.width, .height]
+        let chrome = GlassAppearance.solidMatteNSColor
+        wv.setValue(false, forKey: "drawsBackground")
+        wv.wantsLayer = true
+        wv.layer?.backgroundColor = chrome.cgColor
+        if #available(macOS 12.0, *) {
+            wv.underPageBackgroundColor = chrome
+        }
+        // Flag so applyGlassChrome can restyle after lazy init
+        DispatchQueue.main.async { [weak self] in
+            self?.consoleWebViewLoaded = true
+            self?.applyGlassChrome()
+        }
         return wv
     }()
     
@@ -889,8 +1094,29 @@ extension AppDelegate: NSToolbarDelegate {
         // Use smaller symbol configuration for compact buttons
         let smallConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
         
+        // Keep toolbar controls clear of the traffic lights and give groups a stable gap.
+        if itemIdentifier == NSToolbarItem.Identifier("trafficLightSpacer") {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            let spacer = NSView(frame: NSRect(x: 0, y: 0, width: 76, height: 1))
+            item.view = spacer
+            item.minSize = NSSize(width: 76, height: 1)
+            item.maxSize = item.minSize
+            return item
+        }
+
+        if itemIdentifier == NSToolbarItem.Identifier("toolbarGap") {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            let spacer = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 1))
+            item.view = spacer
+            item.minSize = NSSize(width: 10, height: 1)
+            item.maxSize = item.minSize
+            return item
+        }
+
         if itemIdentifier == NSToolbarItem.Identifier("back") {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.minSize = NSSize(width: 34, height: 28)
+            item.maxSize = item.minSize
             item.label = "Back"
             item.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back")?.withSymbolConfiguration(smallConfig)
             item.action = #selector(goBack(_:))
@@ -901,6 +1127,8 @@ extension AppDelegate: NSToolbarDelegate {
         
         if itemIdentifier == NSToolbarItem.Identifier("forward") {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.minSize = NSSize(width: 34, height: 28)
+            item.maxSize = item.minSize
             item.label = "Forward"
             item.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Forward")?.withSymbolConfiguration(smallConfig)
             item.action = #selector(goForward(_:))
@@ -911,6 +1139,8 @@ extension AppDelegate: NSToolbarDelegate {
         
         if itemIdentifier == NSToolbarItem.Identifier("reload") {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.minSize = NSSize(width: 34, height: 28)
+            item.maxSize = item.minSize
             item.label = "Reload"
             item.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Reload")?.withSymbolConfiguration(smallConfig)
             item.action = #selector(reload(_:))
@@ -921,6 +1151,8 @@ extension AppDelegate: NSToolbarDelegate {
         
         if itemIdentifier == NSToolbarItem.Identifier("settings") {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.minSize = NSSize(width: 34, height: 28)
+            item.maxSize = item.minSize
             item.label = "Settings"
             item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")?.withSymbolConfiguration(smallConfig)
             item.action = #selector(showSettings(_:))
@@ -931,6 +1163,8 @@ extension AppDelegate: NSToolbarDelegate {
         
         if itemIdentifier == NSToolbarItem.Identifier("transfer") {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.minSize = NSSize(width: 34, height: 28)
+            item.maxSize = item.minSize
             item.label = "Transfer to Code"
             item.image = NSImage(systemSymbolName: "arrow.up.right.diamond", accessibilityDescription: "Transfer Selection")?.withSymbolConfiguration(smallConfig)
             item.action = #selector(transferContext(_:))
@@ -948,7 +1182,13 @@ extension AppDelegate: NSToolbarDelegate {
             })
 
             let view = NSHostingView(rootView: switcher)
-            view.frame = NSRect(x: 0, y: 0, width: 271, height: 30) // Minimalistic: 𝕏 | Chat | Grok | Code | Grokipedia
+            // The switcher is five 32pt tabs, not a full-width toolbar item.
+            // A fixed bound prevents NSToolbar from compressing it into neighbors.
+            let modeWidth: CGFloat = 164
+            view.frame = NSRect(x: 0, y: 0, width: modeWidth, height: 28)
+            item.minSize = NSSize(width: modeWidth, height: 28)
+            item.maxSize = item.minSize
+            item.visibilityPriority = .high
 
             item.view = view
             return item
@@ -959,10 +1199,12 @@ extension AppDelegate: NSToolbarDelegate {
     
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
+            NSToolbarItem.Identifier("trafficLightSpacer"),
             NSToolbarItem.Identifier("back"),
             NSToolbarItem.Identifier("forward"),
             NSToolbarItem.Identifier("reload"),
-            NSToolbarItem.Identifier("transfer"), // New Transfer Button
+            NSToolbarItem.Identifier("toolbarGap"),
+            NSToolbarItem.Identifier("transfer"),
             .flexibleSpace,
             NSToolbarItem.Identifier("modeSwitch"), // The Toggle
             .flexibleSpace,
@@ -1438,6 +1680,25 @@ extension AppDelegate: WKNavigationDelegate {
         #if DEBUG
         print("Page loaded successfully: \(webView.url?.absoluteString ?? "unknown")")
         #endif
+        // Prefer native chrome; only inject if page root still shows a light/warm margin under the titlebar
+        let css = """
+        html, body { background-color: #000000 !important; }
+        """
+        let js = """
+        (function() {
+            if (document.getElementById('grok-native-chrome-fix')) return;
+            var s = document.createElement('style');
+            s.id = 'grok-native-chrome-fix';
+            s.textContent = \(css.debugDescription);
+            (document.head || document.documentElement).appendChild(s);
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
+
+        // Compact usage badge next to sidebar profile name (grok.com only)
+        if webView === self.webView {
+            GrokUsageBadge.injectIfNeeded(into: webView)
+        }
     }
 }
 

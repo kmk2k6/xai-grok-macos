@@ -12,6 +12,7 @@ import Cocoa
 import ServiceManagement
 import Sparkle
 import WebKit
+import SwiftUI
 
 class SettingsWindow: NSWindow {
     
@@ -21,7 +22,7 @@ class SettingsWindow: NSWindow {
     
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -29,25 +30,38 @@ class SettingsWindow: NSWindow {
         self.title = "Settings"
         self.center()
         self.isReleasedWhenClosed = false
+        self.minSize = NSSize(width: 480, height: 400)
         setupUI()
     }
     
     private func setupUI() {
-        let tabView = NSTabView(frame: NSRect(x: 0, y: 0, width: 480, height: 350))
+        let tabView = NSTabView(frame: NSRect(x: 0, y: 0, width: 520, height: 480))
         tabView.autoresizingMask = [.width, .height]
         
         let generalItem = NSTabViewItem(identifier: "general")
         generalItem.label = "General"
         generalItem.view = createGeneralView()
         
+        let appearanceItem = NSTabViewItem(identifier: "appearance")
+        appearanceItem.label = "Appearance"
+        appearanceItem.view = createAppearanceView()
+        
         let grokItem = NSTabViewItem(identifier: "grok")
         grokItem.label = "Grok Code"
         grokItem.view = createGrokView()
         
         tabView.addTabViewItem(generalItem)
+        tabView.addTabViewItem(appearanceItem)
         tabView.addTabViewItem(grokItem)
         
         self.contentView = tabView
+    }
+    
+    private func createAppearanceView() -> NSView {
+        let hosting = NSHostingView(rootView: AppearanceSettingsView(settingsManager: .shared))
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 480)
+        hosting.autoresizingMask = [.width, .height]
+        return hosting
     }
     
     private func createGeneralView() -> NSView {
