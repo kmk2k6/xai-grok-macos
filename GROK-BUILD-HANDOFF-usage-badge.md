@@ -1,25 +1,21 @@
 # Grok Build / grokbot link — usage bolt
 
 Repo: https://github.com/kmk2k6/xai-grok-macos (Kevin’s fork). Do **not** PR to bcharleson.
-Do not mix this with Pand0ra.
 
-## Fixed on main
-- Bolt stays on the profile **name row**, vertically centered, to the right of the name.
-- Pointer down is swallowed so the profile menu does not also open.
-- One click hard-loads the **current** page with `?_s=usage`.
-  Grok's settings store reads `_s` only when it is constructed. A soft URL
-  change, or walking Account → Payments → Usage, is the old multi-menu.
-- If Usage is already open, the total % in that dialog is cached on the bolt.
+## Done (pushed 2026-10-02)
+- Bolt sits on the same row as the profile name (inline to the right), not under it. Pointer events on the bolt no longer open the profile menu.
+- One click calls grok.com’s settings store the same way Payments / the in-app “View usage” buttons do: `setTab("usage")` then `setOpen(true)`, found by walking the live React fiber tree. It does **not** navigate to `/?_s=usage` unless that store cannot be found.
+- Fallback deep link keeps the current path and only sets `_s=usage` (no forced reload to `/`).
+- If the Usage dialog text includes a total/weekly percent, it is cached on the bolt.
+- Kevin confirmed the Usage sheet opened on the first click (2026-10-02).
 
 ## File
 `Sources/Services/GrokUsageBadge.swift`
 
-## Build (once, on the Mini)
+## Build (once)
 ```bash
 xcodebuild -project GrokApp.xcodeproj -scheme Grok -configuration Debug \
   -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
 ```
-Relaunch `/Applications/Grok.app` once. No Chrome loops. No `build.sh`.
-
-## Success
-Bolt beside the name → one click → Settings Usage sheet, chat still behind it.
+App that is actually running: `build/Build/Products/Debug/Grok.app`.
+`/Applications/Grok.app` is a separate copy (not a symlink to Debug).
