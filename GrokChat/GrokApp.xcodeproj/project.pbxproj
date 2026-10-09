@@ -42,7 +42,6 @@
 		93E100072FB8AC0000000004 /* GrokGhosttyTerminalNSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E100082FB8AC0000000004 /* GrokGhosttyTerminalNSView.swift */; };
 		93E100092FB8AC0000000005 /* GrokGhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E1000A2FB8AC0000000005 /* GrokGhosttyTerminalView.swift */; };
 		93E1000B2FB8AC0000000006 /* TerminalSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E1000C2FB8AC0000000006 /* TerminalSessionManager.swift */; };
-		93E1000D2FB8AC0000000007 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93E1000E2FB8AC0000000007 /* GhosttyKit.xcframework */; };
 		93E1000F2FB8AC0000000008 /* ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 93E100102FB8AC0000000008 /* ghostty */; };
 		93E100112FB8AC0000000009 /* terminfo in Resources */ = {isa = PBXBuildFile; fileRef = 93E100122FB8AC0000000009 /* terminfo */; };
 /* End PBXBuildFile section */
@@ -83,7 +82,6 @@
 		93E100082FB8AC0000000004 /* GrokGhosttyTerminalNSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokGhosttyTerminalNSView.swift; sourceTree = "<group>"; };
 		93E1000A2FB8AC0000000005 /* GrokGhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokGhosttyTerminalView.swift; sourceTree = "<group>"; };
 		93E1000C2FB8AC0000000006 /* TerminalSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSessionManager.swift; sourceTree = "<group>"; };
-		93E1000E2FB8AC0000000007 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		93E100102FB8AC0000000008 /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ghostty; sourceTree = "<group>"; };
 		93E100122FB8AC0000000009 /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; path = terminfo; sourceTree = "<group>"; };
 /* End PBXFileReference section */
