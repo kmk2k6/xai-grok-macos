@@ -151,6 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Route web “Grok Build” promo CTAs into the native harness.
         config.userContentController.add(self, name: WebToBuildBridge.messageHandlerName)
+        GrokUsageBadge.installUserScript(into: config.userContentController)
         
         // Use SilentWebView to prevent keyboard beeps when typing special characters
         webView = SilentWebView(frame: .zero, configuration: config)

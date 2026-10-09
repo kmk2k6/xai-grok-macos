@@ -3,10 +3,9 @@
 //  Grok for Mac
 //
 //  Adds a compact usage bolt inline to the right of the grok.com sidebar
-//  profile name. One click opens Grok's settings Usage tab the same way
-//  Payments does: the in-page settings store setTab("usage") + setOpen(true).
-//  A full navigation to /?_s=usage is only a fallback. If that dialog exposes
-//  a total percentage, it is cached locally as an optional label.
+//  profile name. Auto-refreshes usage percentage on a timer and page load
+//  by learning and re-issuing grok.com's same-origin usage endpoint.
+//  One click opens Grok's settings Usage tab as a direct UI action.
 //
 
 import Foundation
@@ -15,7 +14,8 @@ import WebKit
 enum GrokUsageBadge {
     static let refreshIntervalKey = "grok.usageBadgeRefreshSeconds"
     static let percentStorageKey = "grok.usageBadge.percent"
-    static let defaultRefreshSeconds = 120
+    static let endpointStorageKey = "grok.usageBadge.endpointPath"
+    static let defaultRefreshSeconds = 300 // default ~5 min, clamp 30…3600
 
     /// Persisted optional refresh interval (seconds). Clamped 30…3600.
     static var refreshIntervalSeconds: Int {
@@ -27,6 +27,20 @@ enum GrokUsageBadge {
         set {
             UserDefaults.standard.set(min(3600, max(30, newValue)), forKey: refreshIntervalKey)
         }
+    }
+
+    /// User script installed at document-start to wrap fetch/XHR before page scripts run.
+    static func makeUserScript() -> WKUserScript {
+        return WKUserScript(
+            source: interceptorJavaScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+    }
+
+    /// Helper to install the document-start interceptor into a configuration's userContentController.
+    static func installUserScript(into controller: WKUserContentController) {
+        controller.addUserScript(makeUserScript())
     }
 
     /// Inject / refresh the bolt on a finished grok.com navigation.
@@ -55,17 +69,387 @@ enum GrokUsageBadge {
 
     // MARK: - JavaScript
 
+    /// Injected at document-start to wrap window.fetch and XMLHttpRequest before grok.com scripts execute.
+    private static let interceptorJavaScript: String = """
+
+    (function() {
+      if (typeof window === "undefined") return;
+      try {
+        var host = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : "";
+        if (host && host !== "grok.com" && !host.endsWith(".grok.com")) return;
+      } catch (e) { return; }
+
+      if (window.__grokUsageInterceptorInstalled) return;
+      window.__grokUsageInterceptorInstalled = true;
+
+      var PERCENT_KEY = "grok.usageBadge.percent";
+      var ENDPOINT_PATH_KEY = "grok.usageBadge.endpointPath";
+      var CANDIDATE_URL_RE = /(?:rate[-_]?limits?|usage|quota|billing)/i;
+
+      window.__grokUsageState = window.__grokUsageState || {
+        percent: null,
+        endpointPath: null,
+        endpointMethod: "GET"
+      };
+
+      function readStoredPercent() {
+        try {
+          var raw = window.localStorage.getItem(PERCENT_KEY);
+          var value = parseInt(raw || "", 10);
+          return isFinite(value) && value >= 0 && value <= 100 ? value : null;
+        } catch (e) { return null; }
+      }
+
+      function readStoredEndpointPath() {
+        try {
+          var p = window.localStorage.getItem(ENDPOINT_PATH_KEY);
+          return (typeof p === "string" && p.length > 0 && p.length < 500) ? p : null;
+        } catch (e) { return null; }
+      }
+
+      function savePercent(value) {
+        if (!isFinite(value) || value < 0 || value > 100) return;
+        var rounded = Math.round(value);
+        window.__grokUsageState.percent = rounded;
+        try { window.localStorage.setItem(PERCENT_KEY, String(rounded)); } catch (e) {}
+      }
+
+      function saveEndpoint(urlStr, method) {
+        if (!urlStr || typeof urlStr !== "string") return;
+        var path = "";
+        try {
+          var u = new URL(urlStr, window.location.origin);
+          path = u.pathname;
+        } catch (e) {
+          path = urlStr;
+        }
+        if (!path || path === "/" || path.length < 2) return;
+
+        window.__grokUsageState.endpointPath = path;
+        window.__grokUsageState.endpointMethod = (method === "POST") ? "POST" : "GET";
+        try { window.localStorage.setItem(ENDPOINT_PATH_KEY, path); } catch (e) {}
+      }
+
+      if (window.__grokUsageState.percent == null) {
+        window.__grokUsageState.percent = readStoredPercent();
+      }
+      if (!window.__grokUsageState.endpointPath) {
+        window.__grokUsageState.endpointPath = readStoredEndpointPath();
+      }
+
+      function isUsageCandidateUrl(urlStr) {
+        if (!urlStr || typeof urlStr !== "string") return false;
+        if (/\\.(?:js|css|png|jpg|jpeg|gif|svg|webp|woff2?|ttf|eot|ico|map)(?:\\?.*)?$/i.test(urlStr)) return false;
+        try {
+          var u = new URL(urlStr, window.location.origin);
+          var h = u.hostname.toLowerCase();
+          if (h !== window.location.hostname.toLowerCase() && !h.endsWith(".grok.com")) return false;
+          return CANDIDATE_URL_RE.test(u.pathname);
+        } catch (e) {
+          return CANDIDATE_URL_RE.test(urlStr);
+        }
+      }
+
+      function usagePercentFromText(text) {
+        if (!text || !/\\busage\\b/i.test(text)) return null;
+        var found = [];
+        var re = /(\\d{1,3})\\s*%/g;
+        var match;
+        while ((match = re.exec(text)) !== null) {
+          var value = parseInt(match[1], 10);
+          if (value < 0 || value > 100) continue;
+          var nearby = text.slice(Math.max(0, match.index - 90), Math.min(text.length, match.index + match[0].length + 90));
+          var priority = /\\b(total|overall|combined|weekly)\\b/i.test(nearby) ? 4 : (/%\\s*used|\\bused\\b/i.test(nearby) ? 3 : 1);
+          found.push({ value: value, priority: priority, index: match.index });
+        }
+        if (!found.length) return null;
+        var unique = [];
+        for (var i = 0; i < found.length; i++) {
+          if (unique.indexOf(found[i].value) < 0) unique.push(found[i].value);
+        }
+        if (unique.length >= 3) {
+          for (var a = 0; a < unique.length; a++) {
+            var rest = 0;
+            for (var b = 0; b < unique.length; b++) if (b !== a) rest += unique[b];
+            if (Math.abs(rest - unique[a]) <= 2) return unique[a];
+          }
+        }
+        found.sort(function(a, b) { return (b.priority - a.priority) || (a.index - b.index); });
+        return found[0].value;
+      }
+
+      function extractPercentFromJson(obj) {
+        var candidates = [];
+
+        function walk(node, path, depth) {
+          if (depth > 6 || !node || typeof node !== "object") return;
+
+          var isWeeklyContext = false;
+          var isTotalContext = false;
+          for (var prop in node) {
+            if (Object.prototype.hasOwnProperty.call(node, prop) && typeof node[prop] === "string") {
+              var sVal = node[prop].toLowerCase();
+              if (sVal.indexOf("weekly") !== -1) isWeeklyContext = true;
+              if (sVal.indexOf("total") !== -1 || sVal.indexOf("overall") !== -1) isTotalContext = true;
+            }
+          }
+
+          var keys = Object.keys(node);
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            var v = node[k];
+            var currentPath = path ? path + "." + k : k;
+            var lowerK = k.toLowerCase();
+
+            if (typeof v === "number" || (typeof v === "string" && /^\\s*\\d{1,3}(?:\\.\\d+)?\\s*%?\\s*$/.test(v))) {
+              var num = typeof v === "number" ? v : parseFloat(v);
+              if (num > 0 && num < 1 && (lowerK.indexOf("percent") !== -1 || lowerK.indexOf("ratio") !== -1 || lowerK.indexOf("rate") !== -1 || lowerK.indexOf("pct") !== -1)) {
+                num = Math.round(num * 100);
+              } else {
+                num = Math.round(num);
+              }
+
+              if (num >= 0 && num <= 100) {
+                var score = 0;
+                var lowerPath = currentPath.toLowerCase();
+                if (isWeeklyContext || lowerPath.indexOf("weekly") !== -1) score += 100;
+                if (isTotalContext || lowerPath.indexOf("total") !== -1 || lowerPath.indexOf("overall") !== -1) score += 80;
+                if (lowerPath.indexOf("ratelimit") !== -1 || lowerPath.indexOf("rate_limit") !== -1 || lowerPath.indexOf("rate-limit") !== -1) score += 60;
+                if (lowerPath.indexOf("usage") !== -1 || lowerPath.indexOf("used") !== -1) score += 40;
+                if (lowerK.indexOf("percent") !== -1 || lowerK.indexOf("pct") !== -1) score += 50;
+
+                var isIgnored = /id|timestamp|created|updated|expires|time|duration|seconds|millis|ms|version|code|status|port|year|month|day|hour|min/i.test(lowerK);
+                if (!isIgnored || lowerK.indexOf("percent") !== -1 || lowerK.indexOf("pct") !== -1) {
+                  if (score > 0) {
+                    candidates.push({ val: num, score: score });
+                  }
+                }
+              }
+            }
+
+            if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+              var usedVal = null;
+              var limitVal = null;
+              var remainingVal = null;
+
+              for (var k2 in v) {
+                if (!Object.prototype.hasOwnProperty.call(v, k2)) continue;
+                var lowerK2 = k2.toLowerCase();
+                var val2 = v[k2];
+                if (typeof val2 !== "number") continue;
+
+                if (/used|consumed|current|count/i.test(lowerK2) && !/remaining|left|limit|total|max|quota/i.test(lowerK2)) {
+                  usedVal = val2;
+                } else if (/remaining|left/i.test(lowerK2) && !/used|consumed|limit|total|max|quota/i.test(lowerK2)) {
+                  remainingVal = val2;
+                } else if (/limit|total|max|quota|cap/i.test(lowerK2) && !/used|consumed|remaining|left/i.test(lowerK2)) {
+                  limitVal = val2;
+                }
+              }
+
+              if (typeof usedVal === "number" && typeof limitVal === "number" && limitVal > 0 && usedVal >= 0) {
+                var pct = Math.round((usedVal / limitVal) * 100);
+                if (pct >= 0 && pct <= 100) {
+                  var s = 60;
+                  var lp = currentPath.toLowerCase();
+                  if (isWeeklyContext || lp.indexOf("weekly") !== -1) s += 100;
+                  if (isTotalContext || lp.indexOf("total") !== -1 || lp.indexOf("overall") !== -1) s += 80;
+                  if (lp.indexOf("ratelimit") !== -1 || lp.indexOf("rate-limit") !== -1) s += 50;
+                  candidates.push({ val: pct, score: s });
+                }
+              } else if (typeof remainingVal === "number" && typeof limitVal === "number" && limitVal > 0 && remainingVal >= 0 && remainingVal <= limitVal) {
+                var pct2 = Math.round(((limitVal - remainingVal) / limitVal) * 100);
+                if (pct2 >= 0 && pct2 <= 100) {
+                  var s2 = 50;
+                  var lp2 = currentPath.toLowerCase();
+                  if (isWeeklyContext || lp2.indexOf("weekly") !== -1) s2 += 100;
+                  if (isTotalContext || lp2.indexOf("total") !== -1 || lp2.indexOf("overall") !== -1) s2 += 80;
+                  if (lp2.indexOf("ratelimit") !== -1 || lp2.indexOf("rate-limit") !== -1) s2 += 50;
+                  candidates.push({ val: pct2, score: s2 });
+                }
+              }
+            }
+
+            if (typeof v === "object" && v !== null) {
+              walk(v, currentPath, depth + 1);
+            }
+          }
+        }
+
+        walk(obj, "", 0);
+
+        if (candidates.length > 0) {
+          candidates.sort(function(a, b) { return b.score - a.score; });
+          return candidates[0].val;
+        }
+        return null;
+      }
+
+      function extractPercentFromPayload(payload) {
+        if (!payload) return null;
+        if (typeof payload === "object") {
+          var num = extractPercentFromJson(payload);
+          if (num !== null) return num;
+          try {
+            return usagePercentFromText(JSON.stringify(payload));
+          } catch (e) {
+            return null;
+          }
+        }
+        if (typeof payload === "string") {
+          try {
+            var parsed = JSON.parse(payload);
+            var n = extractPercentFromJson(parsed);
+            if (n !== null) return n;
+          } catch (e) {}
+          return usagePercentFromText(payload);
+        }
+        return null;
+      }
+
+      function handleUsageResponse(urlStr, method, text) {
+        if (!text) return;
+        var percent = extractPercentFromPayload(text);
+        if (percent != null) {
+          savePercent(percent);
+          saveEndpoint(urlStr, method);
+          if (typeof window.__grokUsageBoltRender === "function") {
+            window.__grokUsageBoltRender();
+          }
+        }
+      }
+
+      var isRefreshing = false;
+      function refreshUsage() {
+        if (isRefreshing) return;
+        var path = (window.__grokUsageState && window.__grokUsageState.endpointPath) || readStoredEndpointPath();
+        if (!path) return;
+        var method = (window.__grokUsageState && window.__grokUsageState.endpointMethod) || "GET";
+
+        isRefreshing = true;
+        try {
+          var fetchOpts = {
+            method: method,
+            credentials: "include"
+          };
+          if (method === "POST") {
+            fetchOpts.headers = { "Content-Type": "application/json" };
+            fetchOpts.body = "{}";
+          }
+
+          window.__grokUsageIsSelfRefresh = true;
+          fetch(path, fetchOpts)
+            .then(function(res) {
+              window.__grokUsageIsSelfRefresh = false;
+              if (!res || !res.ok) return null;
+              return res.text();
+            })
+            .then(function(text) {
+              isRefreshing = false;
+              if (!text) return;
+              var pct = extractPercentFromPayload(text);
+              if (pct != null) {
+                savePercent(pct);
+                if (typeof window.__grokUsageBoltRender === "function") {
+                  window.__grokUsageBoltRender();
+                }
+              }
+            })
+            .catch(function() {
+              window.__grokUsageIsSelfRefresh = false;
+              isRefreshing = false;
+            });
+        } catch (e) {
+          window.__grokUsageIsSelfRefresh = false;
+          isRefreshing = false;
+        }
+      }
+
+      window.__grokUsageRefresh = refreshUsage;
+
+      var origFetch = window.fetch;
+      if (typeof origFetch === "function") {
+        window.fetch = function(input, init) {
+          if (window.__grokUsageIsSelfRefresh) {
+            return origFetch.apply(this, arguments);
+          }
+
+          var urlStr = "";
+          var method = "GET";
+          if (typeof input === "string") {
+            urlStr = input;
+          } else if (input && typeof input.url === "string") {
+            urlStr = input.url;
+          } else if (input && typeof input.href === "string") {
+            urlStr = input.href;
+          } else if (input && typeof input.toString === "function") {
+            try { urlStr = input.toString(); } catch (e) {}
+          }
+
+          if (init && init.method) {
+            method = String(init.method).toUpperCase();
+          } else if (input && typeof input.method === "string") {
+            method = String(input.method).toUpperCase();
+          }
+
+          var promise = origFetch.apply(this, arguments);
+
+          if (isUsageCandidateUrl(urlStr)) {
+            promise.then(function(res) {
+              if (res && res.ok) {
+                try {
+                  var clone = res.clone();
+                  clone.text().then(function(text) {
+                    handleUsageResponse(urlStr, method, text);
+                  }).catch(function() {});
+                } catch (e) {}
+              }
+            }).catch(function() {});
+          }
+
+          return promise;
+        };
+      }
+
+      if (typeof XMLHttpRequest !== "undefined") {
+        var origOpen = XMLHttpRequest.prototype.open;
+        var origSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.open = function(method, url) {
+          this.__grokUsageUrl = url;
+          this.__grokUsageMethod = (method || "GET").toUpperCase();
+          return origOpen.apply(this, arguments);
+        };
+
+        XMLHttpRequest.prototype.send = function() {
+          var xhr = this;
+          var urlStr = xhr.__grokUsageUrl;
+          var method = xhr.__grokUsageMethod || "GET";
+
+          if (isUsageCandidateUrl(urlStr)) {
+            xhr.addEventListener("load", function() {
+              try {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  handleUsageResponse(urlStr, method, xhr.responseText);
+                }
+              } catch (e) {}
+            });
+          }
+
+          return origSend.apply(this, arguments);
+        };
+      }
+    })();
+
+    """
+
     private static func makeInjectorJavaScript(refreshSeconds: Int) -> String {
         return """
 
-        (function() {
-          if (window.__grokUsageBoltInstalled) {
-            window.__grokUsageBoltRender && window.__grokUsageBoltRender();
-            return;
-          }
-          window.__grokUsageBoltInstalled = true;
+        \(interceptorJavaScript)
 
-          var REFRESH_MS = \(refreshSeconds) * 1000;
+        (function() {
+          var REFRESH_MS = Math.min(3600, Math.max(30, \(refreshSeconds))) * 1000;
           var PERCENT_KEY = "grok.usageBadge.percent";
           var state = { percent: null };
 
@@ -80,10 +464,22 @@ enum GrokUsageBadge {
           function savePercent(value) {
             if (!isFinite(value) || value < 0 || value > 100) return;
             state.percent = Math.round(value);
+            if (window.__grokUsageState) window.__grokUsageState.percent = state.percent;
             try { window.localStorage.setItem(PERCENT_KEY, String(state.percent)); } catch (e) {}
           }
 
-          state.percent = readStoredPercent();
+          state.percent = (window.__grokUsageState && window.__grokUsageState.percent != null)
+            ? window.__grokUsageState.percent
+            : readStoredPercent();
+
+          if (window.__grokUsageBoltInstalled) {
+            window.__grokUsageBoltRender && window.__grokUsageBoltRender();
+            if (typeof window.__grokUsageRefresh === "function") {
+              window.__grokUsageRefresh();
+            }
+            return;
+          }
+          window.__grokUsageBoltInstalled = true;
 
           function visible(el) {
             if (!el || !el.isConnected) return false;
@@ -129,7 +525,7 @@ enum GrokUsageBadge {
               }
               var lines = source.split("\\n").map(function(x) { return x.replace(/\\s+/g, " ").trim(); }).filter(Boolean);
               if (!lines.length) continue;
-                            var name = lines[0];
+              var name = lines[0];
               name = name.replace(/\\s*ϟ.*$/, "").trim();
               if (name.length < 2 || name.length > 48 || skipName(name)) continue;
               if (/^\\d+%/.test(name) || /usage|api|payments|general/i.test(name)) continue;
@@ -413,11 +809,14 @@ enum GrokUsageBadge {
             var profile = findProfileHost();
             if (!profile) return;
             var bolt = attachBolt(profile);
-            bolt.textContent = state.percent == null ? "\\u03DF" : "\\u03DF " + state.percent + "%";
-            bolt.setAttribute("aria-label", state.percent == null ? "Open usage details" : "Open usage details (" + state.percent + "% used)");
-            bolt.title = state.percent == null ? "Open usage details" : "Open usage details (" + state.percent + "% used)";
-            if (state.percent >= 90) bolt.setAttribute("data-level", "danger");
-            else if (state.percent >= 70) bolt.setAttribute("data-level", "warn");
+            var currentPercent = (window.__grokUsageState && window.__grokUsageState.percent != null)
+              ? window.__grokUsageState.percent
+              : state.percent;
+            bolt.textContent = currentPercent == null ? "\\u03DF" : "\\u03DF " + currentPercent + "%";
+            bolt.setAttribute("aria-label", currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)");
+            bolt.title = currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)";
+            if (currentPercent >= 90) bolt.setAttribute("data-level", "danger");
+            else if (currentPercent >= 70) bolt.setAttribute("data-level", "warn");
             else bolt.removeAttribute("data-level");
           }
 
@@ -439,8 +838,28 @@ enum GrokUsageBadge {
             }, 350);
           });
           try { observer.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
-          setInterval(render, REFRESH_MS);
-          document.addEventListener("visibilitychange", function() { if (!document.hidden) render(); });
+
+          setInterval(function() {
+            if (typeof window.__grokUsageRefresh === "function") {
+              window.__grokUsageRefresh();
+            }
+            render();
+          }, REFRESH_MS);
+
+          document.addEventListener("visibilitychange", function() {
+            if (!document.hidden) {
+              if (typeof window.__grokUsageRefresh === "function") {
+                window.__grokUsageRefresh();
+              }
+              render();
+            }
+          });
+
+          // Trigger immediate refresh after page loads
+          if (typeof window.__grokUsageRefresh === "function") {
+            window.__grokUsageRefresh();
+            setTimeout(window.__grokUsageRefresh, 1500);
+          }
         })();
 
         """
