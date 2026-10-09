@@ -83,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var webView: WKWebView!
     var grokipediaWebView: WKWebView!
     var xWebView: WKWebView!
+    var authPopupWindows: [NSWindow] = []
     var chatXWebView: WKWebView!  // chat.x.com - shares cookies with xWebView
     var devViewController: NSHostingController<BuildRootView>?
     var currentMode: AppMode = .chat {
@@ -1647,23 +1648,35 @@ extension AppDelegate: WKUIDelegate {
     
     // Handle opening links in new windows (Popups/OAuth vs External Links)
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        // If a popup is requested (target="_blank")
-        if navigationAction.targetFrame == nil {
-             if let url = navigationAction.request.url, let host = url.host?.lowercased() {
-                 // Whitelist allowed domains for popups (Google Auth, etc.)
-                 let allowedHosts = ["grok.com", "accounts.google.com", "apple.com", "twitter.com", "x.com"]
-                 let isAllowed = allowedHosts.contains { host.contains($0) }
-                 
-                 if isAllowed {
-                     // Internal/Auth popup -> Load in main window
-                     webView.load(navigationAction.request)
-                 } else {
-                     // External link -> Open in Default Browser
-                     NSWorkspace.shared.open(url)
-                 }
-             }
+        guard navigationAction.targetFrame == nil,
+              let url = navigationAction.request.url else { return nil }
+        let host = url.host?.lowercased() ?? ""
+        let authHosts = ["grok.com", "x.ai", "x.com", "twitter.com", "google.com", "apple.com"]
+        let isAuth = host.isEmpty || url.scheme == "about" || authHosts.contains { host.contains($0) }
+        guard isAuth else {
+            NSWorkspace.shared.open(url)
+            return nil
         }
-        return nil
+        // Real popup sharing the opener's session so OAuth can post back via window.opener
+        let popup = WKWebView(frame: NSRect(x: 0, y: 0, width: 520, height: 720), configuration: configuration)
+        popup.uiDelegate = self
+        popup.navigationDelegate = self
+        popup.customUserAgent = webView.customUserAgent
+        let win = NSWindow(contentRect: popup.frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        win.title = "Sign in"
+        win.contentView = popup
+        win.isReleasedWhenClosed = false
+        win.center()
+        win.makeKeyAndOrderFront(nil)
+        authPopupWindows.append(win)
+        return popup
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if let i = authPopupWindows.firstIndex(where: { $0.contentView === webView }) {
+            authPopupWindows[i].close()
+            authPopupWindows.remove(at: i)
+        }
     }
 }
 
@@ -1694,7 +1707,7 @@ extension AppDelegate: WKNavigationDelegate {
         // Open non-app links in the default browser (Safari/Chrome)
         if let url = navigationAction.request.url, let host = url.host?.lowercased() {
              // Whitelist allowed domains for main window (App + Auth providers)
-             let allowedHosts = ["grok.com", "twitter.com", "x.com", "google.com", "accounts.google.com", "apple.com"]
+             let allowedHosts = ["grok.com", "x.ai", "twitter.com", "x.com", "google.com", "accounts.google.com", "apple.com"]
              let isAllowed = allowedHosts.contains { host.contains($0) }
              
              // If not allowed and it's a link click, open in external browser
