@@ -13,6 +13,7 @@
 //
 
 import Cocoa
+import Combine
 import WebKit
 import Sparkle
 import SwiftUI
@@ -71,6 +72,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // View Management
     var mainContainerView: NSView!
+    /// Titlebar/toolbar glass strip only — web content stays opaque.
+    var chromeEffectView: NSVisualEffectView!
+    var chromeTintView: NSView!
+    var chromeBorderView: NSView!
+    private var glassObservation: AnyCancellable?
+    private var windowFrameObservation: NSObjectProtocol?
+    private var consoleWebViewLoaded = false
+    private var titlebarBackgroundView: NSView?
     var webView: WKWebView!
     var grokipediaWebView: WKWebView!
     var xWebView: WKWebView!
@@ -116,12 +125,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        let grokChromeBlack = GlassAppearance.solidMatteNSColor
         window.title = "" // Hide title for cleaner look
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = false
+        window.titlebarAppearsTransparent = true
+        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         window.setFrameAutosaveName("GrokMainWindow")
-        window.backgroundColor = .windowBackgroundColor
+        window.backgroundColor = grokChromeBlack
         window.minSize = NSSize(width: 800, height: 600)
         window.isOpaque = true
         window.isReleasedWhenClosed = false // Keep window in memory when closed
@@ -151,18 +162,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let toolbar = NSToolbar(identifier: "MainToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
+        toolbar.sizeMode = .small
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact // Tighter/smaller toolbar
 
-        // Set up Container View
+        // Container: opaque web content + optional glass strip over titlebar/toolbar only
         mainContainerView = NSView(frame: .zero)
         mainContainerView.autoresizingMask = [.width, .height]
+        mainContainerView.wantsLayer = true
+        mainContainerView.layer?.backgroundColor = grokChromeBlack.cgColor
         window.contentView = mainContainerView
 
-        // Settings webView scaling
+        chromeEffectView = NSVisualEffectView(frame: .zero)
+        chromeEffectView.blendingMode = .behindWindow
+        chromeEffectView.state = .active
+        chromeEffectView.autoresizingMask = [.width, .maxYMargin]
+        chromeEffectView.wantsLayer = true
+        mainContainerView.addSubview(chromeEffectView)
+
+        chromeTintView = NSView(frame: .zero)
+        chromeTintView.wantsLayer = true
+        chromeTintView.autoresizingMask = [.width, .maxYMargin]
+        mainContainerView.addSubview(chromeTintView)
+
+        chromeBorderView = NSView(frame: .zero)
+        chromeBorderView.wantsLayer = true
+        chromeBorderView.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        chromeBorderView.autoresizingMask = [.width, .maxYMargin]
+        mainContainerView.addSubview(chromeBorderView)
+
         webView.autoresizingMask = [.width, .height]
         webView.frame = mainContainerView.bounds
-        mainContainerView.addSubview(webView)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = grokChromeBlack.cgColor
+        if #available(macOS 12.0, *) {
+            webView.underPageBackgroundColor = grokChromeBlack
+        }
+        mainContainerView.addSubview(webView, positioned: .below, relativeTo: chromeEffectView)
 
         // Pre-load Developer View (Grok Build Agent)
         let devView = NSHostingController(rootView: BuildRootView())
@@ -241,6 +280,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: "https://grok.com") {
             webView.load(URLRequest(url: url))
         }
+
+        applyGlassChrome()
+        glassObservation = SettingsManager.shared.$glassAppearance
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applyGlassChrome() }
+        windowFrameObservation = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in self?.layoutChromeStrip() }
         
         // Show window and make key
         window.makeKeyAndOrderFront(nil)
@@ -250,6 +299,115 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize Input Window (hidden by default)
         inputWindow = InputWindow()
+    }
+
+    /// Solid #000000 when glass is off or see-through is low. Frosted strip over the titlebar when dialed up.
+    func applyGlassChrome() {
+        guard window != nil, mainContainerView != nil, chromeEffectView != nil else { return }
+        if currentMode == .developer {
+            updateWindowChrome(for: .developer)
+            return
+        }
+        let g = SettingsManager.shared.glassAppearance
+        let solid = GlassAppearance.solidMatteNSColor
+
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.toolbar?.isVisible = true
+
+        mainContainerView.wantsLayer = true
+        applyOpaqueWebChrome(solid)
+        applyTitlebarBackground(g.prefersSolidChrome ? solid : .clear)
+
+        if g.prefersSolidChrome {
+            window.isOpaque = true
+            window.backgroundColor = solid
+            mainContainerView.layer?.backgroundColor = solid.cgColor
+            chromeEffectView.isHidden = true
+            chromeTintView.isHidden = true
+            chromeBorderView.isHidden = true
+        } else {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            mainContainerView.layer?.backgroundColor = solid.cgColor
+            chromeEffectView.isHidden = false
+            chromeEffectView.material = g.nsMaterial
+            chromeEffectView.alphaValue = CGFloat(g.windowEffectOpacity)
+            chromeTintView.isHidden = false
+            chromeTintView.layer?.backgroundColor = solid.withAlphaComponent(CGFloat(g.tintOpacity)).cgColor
+            let borderAlpha = CGFloat(g.borderOpacity(for: .dark))
+            chromeBorderView.isHidden = borderAlpha < 0.01
+            chromeBorderView.layer?.backgroundColor = NSColor.white.withAlphaComponent(borderAlpha).cgColor
+        }
+        layoutChromeStrip()
+    }
+
+    private func applyTitlebarBackground(_ color: NSColor) {
+        guard let closeButton = window.standardWindowButton(.closeButton) else { return }
+        var cursor: NSView? = closeButton
+        var titlebarHost: NSView?
+        while let view = cursor {
+            if view.frame.width >= window.frame.width * 0.8,
+               view.frame.height >= 30, view.frame.height <= 120 {
+                titlebarHost = view
+                break
+            }
+            cursor = view.superview
+        }
+        guard let host = titlebarHost ?? closeButton.superview?.superview else { return }
+
+        let overlay: NSView
+        if let existing = titlebarBackgroundView, existing.superview === host {
+            overlay = existing
+        } else {
+            titlebarBackgroundView?.removeFromSuperview()
+            overlay = NSView(frame: host.bounds)
+            overlay.autoresizingMask = [.width, .height]
+            overlay.wantsLayer = true
+            host.addSubview(overlay, positioned: .below, relativeTo: nil)
+            titlebarBackgroundView = overlay
+        }
+        overlay.frame = host.bounds
+        overlay.layer?.backgroundColor = color.cgColor
+    }
+
+    private func styleOpaqueWebView(_ wv: WKWebView, solid: NSColor) {
+        wv.setValue(false, forKey: "drawsBackground")
+        wv.wantsLayer = true
+        wv.layer?.backgroundColor = solid.cgColor
+        if #available(macOS 12.0, *) {
+            wv.underPageBackgroundColor = solid
+        }
+    }
+
+    private func applyOpaqueWebChrome(_ solid: NSColor) {
+        styleOpaqueWebView(webView, solid: solid)
+        styleOpaqueWebView(grokipediaWebView, solid: solid)
+        styleOpaqueWebView(xWebView, solid: solid)
+        styleOpaqueWebView(chatXWebView, solid: solid)
+        if consoleWebViewLoaded {
+            styleOpaqueWebView(consoleWebView, solid: solid)
+        }
+    }
+
+    func layoutChromeStrip() {
+        guard currentMode != .developer,
+              let content = mainContainerView, window != nil,
+              chromeEffectView != nil else { return }
+        let layout = window.contentLayoutRect
+        var chromeHeight = max(0, content.bounds.height - layout.height)
+        if chromeHeight < 1 {
+            chromeHeight = 52
+        }
+        let width = content.bounds.width
+        let y = content.bounds.height - chromeHeight
+        chromeEffectView.frame = NSRect(x: 0, y: y, width: width, height: chromeHeight)
+        chromeTintView.frame = chromeEffectView.frame
+        chromeBorderView.frame = NSRect(x: 0, y: y, width: width, height: 1)
+        content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
+        content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
+        content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
     }
     
     func setupStatusBar() {
@@ -915,6 +1073,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             wv.load(URLRequest(url: url))
         }
         wv.autoresizingMask = [.width, .height]
+        let chrome = GlassAppearance.solidMatteNSColor
+        wv.setValue(false, forKey: "drawsBackground")
+        wv.wantsLayer = true
+        wv.layer?.backgroundColor = chrome.cgColor
+        if #available(macOS 12.0, *) {
+            wv.underPageBackgroundColor = chrome
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.consoleWebViewLoaded = true
+            self?.applyGlassChrome()
+        }
         return wv
     }()
     
@@ -945,7 +1114,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         currentMode = mode
-        updateWindowChrome(for: mode)
 
         // Remove current view
         mainContainerView.subviews.forEach { $0.removeFromSuperview() }
@@ -985,17 +1153,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             mainContainerView.addSubview(chatXWebView)
             window.makeFirstResponder(chatXWebView)
         }
+        updateWindowChrome(for: mode)
     }
 
     private func updateWindowChrome(for mode: AppMode) {
         let isBuild = mode == .developer
         window.toolbar?.isVisible = true
-        window.appearance = isBuild ? NSAppearance(named: .darkAqua) : nil
-        window.backgroundColor = isBuild
-            ? NSColor(calibratedWhite: 0.075, alpha: 1)
-            : .windowBackgroundColor
-        window.titlebarAppearsTransparent = isBuild
         window.titleVisibility = .hidden
+        if isBuild {
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.backgroundColor = NSColor(calibratedWhite: 0.075, alpha: 1)
+            window.titlebarAppearsTransparent = true
+            window.isOpaque = true
+            chromeEffectView?.isHidden = true
+            chromeTintView?.isHidden = true
+            chromeBorderView?.isHidden = true
+            return
+        }
+        applyGlassChrome()
     }
 }
 

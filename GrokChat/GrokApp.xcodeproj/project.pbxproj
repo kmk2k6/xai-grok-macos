@@ -20,6 +20,8 @@
 		93790E722EEA56F800FBB41D /* DeveloperRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93790E712EEA56F800FBB41D /* DeveloperRootView.swift */; };
 		93D285732FB8ABBB009CBD10 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D285712FB8ABBB009CBD10 /* SettingsManager.swift */; };
 		93E100302FB8AC0000000011 /* GrokUsageBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E100312FB8AC0000000011 /* GrokUsageBadge.swift */; };
+		93E100452FB8AC0000000017 /* GlassAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E100442FB8AC0000000016 /* GlassAppearance.swift */; };
+		93E100432FB8AC0000000015 /* VisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E100422FB8AC0000000014 /* VisualEffectBackground.swift */; };
 		93D285742FB8ABBB009CBD10 /* GrokAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D2856E2FB8ABBB009CBD10 /* GrokAPIService.swift */; };
 		93D285752FB8ABBB009CBD10 /* GrokBuildAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D2856F2FB8ABBB009CBD10 /* GrokBuildAuthManager.swift */; };
 		93D285762FB8ABBB009CBD10 /* GrokBuildTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D285702FB8ABBB009CBD10 /* GrokBuildTools.swift */; };
@@ -64,6 +66,8 @@
 		93D285702FB8ABBB009CBD10 /* GrokBuildTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuildTools.swift; sourceTree = "<group>"; };
 		93D285712FB8ABBB009CBD10 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
 		93E100312FB8AC0000000011 /* GrokUsageBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokUsageBadge.swift; sourceTree = "<group>"; };
+		93E100442FB8AC0000000016 /* GlassAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassAppearance.swift; sourceTree = "<group>"; };
+		93E100422FB8AC0000000014 /* VisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectBackground.swift; sourceTree = "<group>"; };
 		93D285802FB8ABBB009CBD20 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		93D285812FB8ABBB009CBD21 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		93D2858F2FB8ABBB009CBD30 /* AgentWorkspaceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkspaceModels.swift; sourceTree = "<group>"; };
@@ -127,6 +131,7 @@
 				93E1001D2FB8AC000000000E /* BuildSessionSwitcher.swift */,
 				93E100162FB8AC000000000B /* BuildEntryGates.swift */,
 				93E100142FB8AC000000000B /* Terminal */,
+				93E100402FB8AC0000000012 /* Views */,
 				93D285992FB8ABBB009CBD39 /* WorkspaceSidebarView.swift */,
 				1A0000020000000000000005 /* Info.plist */,
 			);
@@ -197,12 +202,29 @@
 			path = Terminal;
 			sourceTree = "<group>";
 		};
+		93E100402FB8AC0000000012 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				93E100412FB8AC0000000013 /* Glass */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		93E100412FB8AC0000000013 /* Glass */ = {
+			isa = PBXGroup;
+			children = (
+				93E100422FB8AC0000000014 /* VisualEffectBackground.swift */,
+			);
+			path = Glass;
+			sourceTree = "<group>";
+		};
 		93D2857F2FB8ABBB009CBD1F /* Models */ = {
 			isa = PBXGroup;
 			children = (
 				93D285802FB8ABBB009CBD20 /* Message.swift */,
 				93D285812FB8ABBB009CBD21 /* APIModels.swift */,
 				93D2858F2FB8ABBB009CBD30 /* AgentWorkspaceModels.swift */,
+				93E100442FB8AC0000000016 /* GlassAppearance.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -286,6 +308,8 @@
 				1A0000010000000000000007 /* SettingsWindow.swift in Sources */,
 				93D285732FB8ABBB009CBD10 /* SettingsManager.swift in Sources */,
 				93E100302FB8AC0000000011 /* GrokUsageBadge.swift in Sources */,
+				93E100452FB8AC0000000017 /* GlassAppearance.swift in Sources */,
+				93E100432FB8AC0000000015 /* VisualEffectBackground.swift in Sources */,
 				93D285742FB8ABBB009CBD10 /* GrokAPIService.swift in Sources */,
 				93D285752FB8ABBB009CBD10 /* GrokBuildAuthManager.swift in Sources */,
 				93D285762FB8ABBB009CBD10 /* GrokBuildTools.swift in Sources */,
