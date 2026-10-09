@@ -19,6 +19,7 @@
 		1A0000010000000000000011 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000020000000000000011 /* KeychainHelper.swift */; };
 		93790E722EEA56F800FBB41D /* DeveloperRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93790E712EEA56F800FBB41D /* DeveloperRootView.swift */; };
 		93D285732FB8ABBB009CBD10 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D285712FB8ABBB009CBD10 /* SettingsManager.swift */; };
+		93E100302FB8AC0000000011 /* GrokUsageBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E100312FB8AC0000000011 /* GrokUsageBadge.swift */; };
 		93D285742FB8ABBB009CBD10 /* GrokAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D2856E2FB8ABBB009CBD10 /* GrokAPIService.swift */; };
 		93D285752FB8ABBB009CBD10 /* GrokBuildAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D2856F2FB8ABBB009CBD10 /* GrokBuildAuthManager.swift */; };
 		93D285762FB8ABBB009CBD10 /* GrokBuildTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93D285702FB8ABBB009CBD10 /* GrokBuildTools.swift */; };
@@ -62,6 +63,7 @@
 		93D2856F2FB8ABBB009CBD10 /* GrokBuildAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuildAuthManager.swift; sourceTree = "<group>"; };
 		93D285702FB8ABBB009CBD10 /* GrokBuildTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuildTools.swift; sourceTree = "<group>"; };
 		93D285712FB8ABBB009CBD10 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
+		93E100312FB8AC0000000011 /* GrokUsageBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokUsageBadge.swift; sourceTree = "<group>"; };
 		93D285802FB8ABBB009CBD20 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		93D285812FB8ABBB009CBD21 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		93D2858F2FB8ABBB009CBD30 /* AgentWorkspaceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkspaceModels.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				93D285952FB8ABBB009CBD35 /* WorkspaceStore.swift */,
 				93D285972FB8ABBB009CBD37 /* AgentOrchestrator.swift */,
 				93D285712FB8ABBB009CBD10 /* SettingsManager.swift */,
+				93E100312FB8AC0000000011 /* GrokUsageBadge.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -282,6 +285,7 @@
 				1A0000010000000000000006 /* InputWindow.swift in Sources */,
 				1A0000010000000000000007 /* SettingsWindow.swift in Sources */,
 				93D285732FB8ABBB009CBD10 /* SettingsManager.swift in Sources */,
+				93E100302FB8AC0000000011 /* GrokUsageBadge.swift in Sources */,
 				93D285742FB8ABBB009CBD10 /* GrokAPIService.swift in Sources */,
 				93D285752FB8ABBB009CBD10 /* GrokBuildAuthManager.swift in Sources */,
 				93D285762FB8ABBB009CBD10 /* GrokBuildTools.swift in Sources */,

@@ -1609,6 +1609,9 @@ extension AppDelegate: WKNavigationDelegate {
         print("Page loaded successfully: \(webView.url?.absoluteString ?? "unknown")")
         #endif
         injectGrokBuildNativeHookIfNeeded(in: webView)
+        if webView === self.webView {
+            GrokUsageBadge.injectIfNeeded(into: webView)
+        }
     }
 
     private func injectGrokBuildNativeHookIfNeeded(in webView: WKWebView) {
