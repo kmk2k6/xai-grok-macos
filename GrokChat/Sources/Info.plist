@@ -28,13 +28,13 @@
 	<string>Grok needs to control Terminal to install the Grok Build CLI and run grok login for you.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2025 Brandon Charleson. All rights reserved.</string>
-	<!-- Production Sparkle feed (topoffunnel.com). Debug builds do not start the updater. -->
+	<!-- Sparkle stays in the project, but this fork does not check or update. -->
 	<key>SUFeedURL</key>
-	<string>https://www.topoffunnel.com/downloads/appcast.xml</string>
+	<string></string>
 	<key>SUPublicEDKey</key>
-	<string>a+vXV7cwhCxuoSLMpuoX8e1G8O223alkm0FX+QxYHlk=</string>
+	<string></string>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
+	<false/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>

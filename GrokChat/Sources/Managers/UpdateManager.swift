@@ -11,12 +11,8 @@
 import Cocoa
 import Sparkle
 
-/// Manages application updates using Sparkle framework.
-///
-/// Release builds start the updater against the production feed
-/// (`https://www.topoffunnel.com/downloads/appcast.xml`).
-/// Debug / local fork builds keep Sparkle initialized but do not start
-/// background checks so development machines do not hit the live channel.
+/// Sparkle is linked, but this fork never checks for or installs updates.
+/// The feed URL and public key in Info.plist are blank, and the updater is not started.
 class UpdateManager: NSObject {
 
     static let shared = UpdateManager()
@@ -36,64 +32,28 @@ class UpdateManager: NSObject {
     }
 
     private override init() {
-        let feed = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? ""
-        let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String ?? ""
-        let hasRealFeed = !feed.isEmpty
-            && !feed.contains("example.com")
-            && feed.hasPrefix("https://")
-        let hasRealKey = !key.isEmpty
-            && !key.contains("YOUR_PUBLIC_KEY")
-            && key.count >= 32
-        isConfiguredForUpdates = hasRealFeed && hasRealKey
+        isConfiguredForUpdates = false
 
         super.init()
 
-        #if DEBUG
-        let shouldStart = false
-        #else
-        let shouldStart = isConfiguredForUpdates
-        #endif
-
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: shouldStart,
+            startingUpdater: false,
             updaterDelegate: self,
             userDriverDelegate: nil
         )
-        isUpdaterRunning = shouldStart
-
-        #if DEBUG
-        print("[UpdateManager] Debug build — Sparkle not started (feed=\(feed))")
-        #endif
+        isUpdaterRunning = false
+        print("[UpdateManager] Sparkle not started; update checks are off")
     }
 
     // MARK: - Public Methods
 
-    /// Check for updates (called from menu item)
+    /// Menu item stays wired, but it does not start Sparkle or contact a feed.
     @objc func checkForUpdates(_ sender: Any?) {
-        guard isConfiguredForUpdates else {
-            #if DEBUG
-            print("[UpdateManager] Skipping update check — Sparkle not configured")
-            #endif
-            return
-        }
-        if !isUpdaterRunning {
-            do {
-                try updaterController.updater.start()
-                isUpdaterRunning = true
-            } catch {
-                #if DEBUG
-                print("[UpdateManager] Failed to start updater: \(error.localizedDescription)")
-                #endif
-                return
-            }
-        }
-        updaterController.checkForUpdates(sender)
+        print("[UpdateManager] Ignoring update check")
     }
 
-    /// Check for updates silently in background
+    /// Background checks are disabled.
     func checkForUpdatesInBackground() {
-        guard isConfiguredForUpdates, isUpdaterRunning else { return }
-        updater.checkForUpdatesInBackground()
     }
 
     /// Returns true if an update check can be performed
