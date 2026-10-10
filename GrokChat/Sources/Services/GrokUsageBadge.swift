@@ -582,6 +582,13 @@ enum GrokUsageBadge {
             .then(function(text) {
               isRefreshing = false;
               if (!text) return;
+              var head = String(text).replace(/^\\s+/, "").charAt(0);
+              if (head !== "{" && head !== "[") {
+                // Learned endpoint is binary gRPC; forget it so we stop polling it.
+                try { window.localStorage.removeItem(ENDPOINT_PATH_KEY); } catch (e) {}
+                window.__grokUsageState.endpointPath = null;
+                return;
+              }
               var pct = extractPercentFromPayload(text);
               if (pct != null) {
                 savePercent(pct);
