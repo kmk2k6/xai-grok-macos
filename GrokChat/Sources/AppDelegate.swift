@@ -617,6 +617,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let quickAsk = NSMenuItem(title: "Quick Ask", action: #selector(showQuickAsk(_:)), keyEquivalent: "")
         quickAsk.target = self
         menu.addItem(quickAsk)
+        let grokBot = NSMenuItem(title: "Grok Bot", action: #selector(toggleGrokBot(_:)), keyEquivalent: "")
+        grokBot.target = self
+        menu.addItem(grokBot)
         menu.addItem(NSMenuItem.separator())
         let settings = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
@@ -898,6 +901,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Command-Shift-F       Focus mode
             Command-Control-F     Full screen
             Command-= / - / 0     Zoom in, out, actual size
+            Control-Option-G      Grok Bot
             Command-Shift-K       Command palette
             Command-`             Build terminal
             Command-/             This cheat sheet
@@ -1586,6 +1590,7 @@ extension AppDelegate: NSToolbarDelegate {
             let view = NSHostingView(rootView: switcher)
             view.frame = NSRect(x: 0, y: 0, width: 336, height: 30) // X + Chat + Grok + Build + Grokipedia (exact previous logos + words)
             view.setAccessibilityLabel("Mode switcher")
+            view.frame.size.width = 430
             
             item.view = view
             return item
@@ -1938,6 +1943,14 @@ extension AppDelegate: NSMenuDelegate {
 extension AppDelegate: HotKeyDelegate {
     func hotKeyTriggered() {
         QuickAskController.toggle()
+    }
+
+    func grokBotHotKeyTriggered() {
+        GrokBotSwitcher.toggle()
+    }
+
+    @objc func toggleGrokBot(_ sender: Any?) {
+        GrokBotSwitcher.toggle()
     }
 
     func screenshotHotKeyTriggered() {
@@ -2559,6 +2572,7 @@ struct ToolbarModeSwitcher: View {
     }
 
     var body: some View {
+        HStack(spacing: 6) {
         ZStack {
             // Layer 1: Track (Bottom) - with proper clip
             RoundedRectangle(cornerRadius: cornerRadius + 2, style: .continuous)
@@ -2665,5 +2679,15 @@ struct ToolbarModeSwitcher: View {
         }
         .frame(width: totalWidth, height: buttonHeight + 4)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius + 2, style: .continuous))
+        Button(action: { GrokBotSwitcher.toggle() }) {
+            Text("Grok Bot")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 8)
+                .frame(height: buttonHeight)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Grok Bot")
+        .help("Switch to the Grok Bot app")
+        }
     }
 }

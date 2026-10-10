@@ -160,6 +160,36 @@ class SettingsWindow: NSWindow {
         shotDropdown.action = #selector(screenshotHotkeyChanged(_:))
         stack.addArrangedSubview(shotDropdown)
 
+        let botLabel = NSTextField(labelWithString: "Grok Bot")
+        botLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        stack.addArrangedSubview(botLabel)
+        let botHotkey = NSPopUpButton(frame: .zero, pullsDown: false)
+        botHotkey.addItems(withTitles: [
+            "Control + Option + G",
+            "Control + Option + B",
+            "Option + Shift + G"
+        ])
+        botHotkey.selectItem(at: UserDefaults.standard.integer(forKey: "grokBotHotkeyPreset"))
+        botHotkey.target = self
+        botHotkey.action = #selector(grokBotHotkeyChanged(_:))
+        botHotkey.setAccessibilityLabel("Grok Bot shortcut")
+        stack.addArrangedSubview(botHotkey)
+        let botRow = NSStackView()
+        botRow.orientation = .horizontal
+        botRow.spacing = 8
+        let botField = NSTextField(string: UserDefaults.standard.string(forKey: GrokBotSwitcher.pathKey) ?? "")
+        botField.placeholderString = "Leave empty to find Grok Bot in /Applications"
+        botField.setAccessibilityLabel("Grok Bot app")
+        botField.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        botField.target = self
+        botField.action = #selector(grokBotPathEdited(_:))
+        botRow.addArrangedSubview(botField)
+        let chooseBot = NSButton(title: "Choose…", target: self, action: #selector(chooseGrokBotApp(_:)))
+        chooseBot.bezelStyle = .rounded
+        chooseBot.setAccessibilityLabel("Choose Grok Bot app")
+        botRow.addArrangedSubview(chooseBot)
+        stack.addArrangedSubview(botRow)
+
         let paceToggle = NSButton(
             checkboxWithTitle: "Warn when usage is more than 15 points ahead of weekly pace",
             target: self,
@@ -442,6 +472,36 @@ class SettingsWindow: NSWindow {
 
     @objc func quietEndChanged(_ sender: NSPopUpButton) {
         UserDefaults.standard.set(sender.selectedTag(), forKey: GrokUsageBadge.quietHoursEndKey)
+    }
+
+    @objc func grokBotHotkeyChanged(_ sender: NSPopUpButton) {
+        if let preset = HotKeyManager.GrokBotPreset(rawValue: sender.indexOfSelectedItem) {
+            HotKeyManager.shared.setGrokBotPreset(preset)
+        }
+    }
+
+    @objc func grokBotPathEdited(_ sender: NSTextField) {
+        let value = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            UserDefaults.standard.removeObject(forKey: GrokBotSwitcher.pathKey)
+        } else {
+            UserDefaults.standard.set(value, forKey: GrokBotSwitcher.pathKey)
+        }
+    }
+
+    @objc func chooseGrokBotApp(_ sender: NSButton) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.beginSheetModal(for: self) { response in
+            guard response == .OK, let url = panel.url else { return }
+            UserDefaults.standard.set(url.path, forKey: GrokBotSwitcher.pathKey)
+            if let field = sender.superview?.subviews.compactMap({ $0 as? NSTextField }).first {
+                field.stringValue = url.path
+            }
+        }
     }
 
     @objc func screenshotHotkeyChanged(_ sender: NSPopUpButton) {

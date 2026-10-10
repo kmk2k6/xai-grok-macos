@@ -14,6 +14,7 @@ import Carbon
 protocol HotKeyDelegate: AnyObject {
     func hotKeyTriggered()
     func screenshotHotKeyTriggered()
+    func grokBotHotKeyTriggered()
 }
 
 class HotKeyManager {
@@ -23,6 +24,7 @@ class HotKeyManager {
     private var eventHandler: EventHandlerRef?
     private var hotKeyRef: EventHotKeyRef?
     private var screenshotHotKeyRef: EventHotKeyRef?
+    private var grokBotHotKeyRef: EventHotKeyRef?
     private var hotKeyID = EventHotKeyID(signature: OSType(0x47524F4B), id: 1) // 'GROK', 1
     
     private var currentKeyCode: UInt32 = 49 // Space
@@ -105,6 +107,8 @@ class HotKeyManager {
             )
             if status == noErr && pressed.id == 2 {
                 HotKeyManager.shared.delegate?.screenshotHotKeyTriggered()
+            } else if status == noErr && pressed.id == 3 {
+                HotKeyManager.shared.delegate?.grokBotHotKeyTriggered()
             } else {
                 HotKeyManager.shared.delegate?.hotKeyTriggered()
             }
@@ -117,6 +121,8 @@ class HotKeyManager {
         setPreset(preset)
         let shot = ScreenshotPreset(rawValue: UserDefaults.standard.integer(forKey: "screenshotHotkeyPreset")) ?? .controlOption4
         setScreenshotPreset(shot)
+        let bot = GrokBotPreset(rawValue: UserDefaults.standard.integer(forKey: "grokBotHotkeyPreset")) ?? .controlOptionG
+        setGrokBotPreset(bot)
     }
     
     func setPreset(_ preset: ShortcutPreset) {
@@ -144,5 +150,80 @@ class HotKeyManager {
         }
         let id = EventHotKeyID(signature: OSType(0x47524F4B), id: 2)
         RegisterEventHotKey(preset.keyCode, preset.modifiers, id, GetApplicationEventTarget(), 0, &screenshotHotKeyRef)
+    }
+
+    enum GrokBotPreset: Int {
+        case controlOptionG = 0
+        case controlOptionB = 1
+        case optionShiftG = 2
+
+        var keyCode: UInt32 { 5 } // G, except B
+
+        var modifiers: UInt32 {
+            switch self {
+            case .controlOptionG: return UInt32(controlKey | optionKey)
+            case .controlOptionB: return UInt32(controlKey | optionKey)
+            case .optionShiftG: return UInt32(optionKey | shiftKey)
+            }
+        }
+
+        var registeredKeyCode: UInt32 {
+            self == .controlOptionB ? 11 : 5 // kVK_ANSI_B or G
+        }
+    }
+
+    func setGrokBotPreset(_ preset: GrokBotPreset) {
+        UserDefaults.standard.set(preset.rawValue, forKey: "grokBotHotkeyPreset")
+        if let ref = grokBotHotKeyRef {
+            UnregisterEventHotKey(ref)
+            grokBotHotKeyRef = nil
+        }
+        let id = EventHotKeyID(signature: OSType(0x47524F4B), id: 3)
+        RegisterEventHotKey(preset.registeredKeyCode, preset.modifiers, id, GetApplicationEventTarget(), 0, &grokBotHotKeyRef)
+    }
+}
+
+enum GrokBotSwitcher {
+    static let pathKey = "grok.bot.appPath"
+
+    static func resolvedURL() -> URL? {
+        if let custom = UserDefaults.standard.string(forKey: pathKey), !custom.isEmpty,
+           FileManager.default.fileExists(atPath: custom) {
+            return URL(fileURLWithPath: custom)
+        }
+        let roots = ["/Applications", (NSHomeDirectory() as NSString).appendingPathComponent("Applications")]
+        let names = ["Grok Bot.app", "GrokBot.app"]
+        for root in roots {
+            for name in names {
+                let path = (root as NSString).appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: path) {
+                    return URL(fileURLWithPath: path)
+                }
+            }
+            guard let folder = try? FileManager.default.contentsOfDirectory(atPath: root) else { continue }
+            for name in folder where name.hasSuffix(".app") {
+                let base = (name as NSString).deletingPathExtension
+                if base.localizedCaseInsensitiveContains("grok bot") {
+                    return URL(fileURLWithPath: (root as NSString).appendingPathComponent(name))
+                }
+            }
+        }
+        return nil
+    }
+
+    static func toggle() {
+        guard let url = resolvedURL() else {
+            (NSApp.delegate as? AppDelegate)?.showSettings(nil)
+            return
+        }
+        let bundleID = Bundle(url: url)?.bundleIdentifier
+        let front = NSWorkspace.shared.frontmostApplication
+        let alreadyFront = (bundleID != nil && front?.bundleIdentifier == bundleID) || front?.bundleURL?.path == url.path
+        if alreadyFront {
+            (NSApp.delegate as? AppDelegate)?.showMainWindow(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 }

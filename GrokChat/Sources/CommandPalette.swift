@@ -167,6 +167,7 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
             action("Export Chat") { $0.exportChat(nil) },
             action("Screenshot to Grok") { $0.captureScreenRegion() },
             action("Build Terminal") { $0.showBuildTerminal(nil) },
+            action("Grok Bot") { _ in GrokBotSwitcher.toggle() },
             action("Send Terminal Selection to Grok") { $0.sendTerminalSelection(nil) },
             action("Keyboard Shortcuts") { $0.showShortcutCheatSheet(nil) },
             action("Settings") { $0.showSettings(nil) },
