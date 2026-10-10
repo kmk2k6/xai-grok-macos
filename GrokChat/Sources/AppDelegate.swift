@@ -1568,6 +1568,7 @@ extension AppDelegate: NSToolbarDelegate {
             
             let view = NSHostingView(rootView: switcher)
             view.frame = NSRect(x: 0, y: 0, width: 336, height: 30) // X + Chat + Grok + Build + Grokipedia (exact previous logos + words)
+            view.setAccessibilityLabel("Mode switcher")
             
             item.view = view
             return item
@@ -2545,6 +2546,7 @@ struct ToolbarModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help("X · Home feed")
+                .accessibilityLabel("X")
 
                 // Chat Button - chat.x.com
                 Button(action: {
@@ -2563,6 +2565,7 @@ struct ToolbarModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help("Chat · chat.x.com")
+                .accessibilityLabel("Chat")
 
                 // Grok Button
                 Button(action: { onModeChange(.chat) }) {
@@ -2577,6 +2580,7 @@ struct ToolbarModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help("Grok · grok.com")
+                .accessibilityLabel("Grok")
 
                 // Build Button
                 Button(action: {
@@ -2595,6 +2599,7 @@ struct ToolbarModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help("Grok Build · local coding agent")
+                .accessibilityLabel("Build")
 
                 // Grokipedia Button
                 Button(action: {
@@ -2613,6 +2618,7 @@ struct ToolbarModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help("Grokipedia · knowledge wiki")
+                .accessibilityLabel("Grokipedia")
             }
         }
         .frame(width: totalWidth, height: buttonHeight + 4)

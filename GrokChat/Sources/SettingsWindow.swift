@@ -207,6 +207,7 @@ class SettingsWindow: NSWindow {
         updateButton.bezelStyle = .rounded
         stack.addArrangedSubview(updateButton)
         generalRows = stack
+        labelNativeRows(stack)
         
         return container
     }
@@ -292,6 +293,7 @@ class SettingsWindow: NSWindow {
         clearButton.bezelStyle = .rounded
         stack.addArrangedSubview(clearButton)
         grokRows = stack
+        labelNativeRows(stack)
         
         return container
     }
@@ -462,6 +464,36 @@ class SettingsWindow: NSWindow {
 
     private func stackHasVisibleRow(_ stack: NSStackView?) -> Bool {
         stack?.arrangedSubviews.contains { !$0.isHidden } ?? false
+    }
+
+    private func labelNativeRows(_ stack: NSStackView, context: String = "Settings") {
+        var pending = context
+        for view in stack.arrangedSubviews {
+            if let field = view as? NSTextField, !field.isEditable {
+                let title = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !title.isEmpty {
+                    pending = title
+                    field.setAccessibilityLabel(title)
+                }
+            } else if let button = view as? NSButton {
+                button.setAccessibilityLabel(button.title)
+            } else if let popup = view as? NSPopUpButton {
+                popup.setAccessibilityLabel(pending)
+            } else if let secure = view as? NSSecureTextField {
+                secure.setAccessibilityLabel(pending)
+            } else if let nested = view as? NSStackView {
+                labelNativeRows(nested, context: pending)
+            }
+            for child in view.subviews {
+                if let popup = child as? NSPopUpButton { popup.setAccessibilityLabel(pending) }
+                if let field = child as? NSTextField, field.isEditable || field is NSSecureTextField {
+                    field.setAccessibilityLabel(pending)
+                }
+                if let button = child as? NSButton, button.title.isEmpty == false {
+                    button.setAccessibilityLabel(button.title)
+                }
+            }
+        }
     }
 
     private func searchableText(in view: NSView) -> String {
