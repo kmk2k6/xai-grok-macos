@@ -541,6 +541,9 @@ enum GrokUsageBadge {
 
       function handleUsageResponse(urlStr, method, text) {
         if (!text) return;
+        // grok.com billing calls are binary gRPC-web; only trust real JSON bodies.
+        var head = String(text).replace(/^\s+/, "").charAt(0);
+        if (head !== "{" && head !== "[") return;
         var percent = extractPercentFromPayload(text);
         if (percent != null) {
           savePercent(percent);
