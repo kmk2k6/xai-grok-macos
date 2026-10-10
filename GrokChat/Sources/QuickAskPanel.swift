@@ -59,6 +59,59 @@ enum GrokChatInjector {
         }
     }
 
+    /// Puts files on the page upload control, or drops them on the composer. Returns whether an input or drop target existed.
+    static func attach(_ files: [GrokAttachment], into webView: WKWebView, attempt: Int = 0, completion: @escaping (Bool) -> Void) {
+        guard !files.isEmpty else {
+            completion(false)
+            return
+        }
+        let payload = files.map { file -> String in
+            let name = jsonStringLiteral(file.filename)
+            let mime = jsonStringLiteral(file.mime)
+            let b64 = jsonStringLiteral(file.data.base64EncodedString())
+            return "{name:\(name),mime:\(mime),b64:\(b64)}"
+        }.joined(separator: ",")
+        let js = """
+        (function() {
+            function fileFrom(spec) {
+                var binary = atob(spec.b64);
+                var bytes = new Uint8Array(binary.length);
+                for (var i = 0; i < binary.length; i++) { bytes[i] = binary.charCodeAt(i); }
+                return new File([bytes], spec.name, { type: spec.mime || 'application/octet-stream' });
+            }
+            var specs = [\(payload)];
+            var made = specs.map(fileFrom);
+            var input = document.querySelector('input[type="file"]');
+            if (input && typeof DataTransfer !== 'undefined') {
+                var transfer = new DataTransfer();
+                made.forEach(function(file) { transfer.items.add(file); });
+                input.files = transfer.files;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }
+            var target = document.querySelector('textarea') || document.querySelector('[contenteditable="true"]') || document.body;
+            if (!target || typeof DataTransfer === 'undefined') { return false; }
+            var dropTransfer = new DataTransfer();
+            made.forEach(function(file) { dropTransfer.items.add(file); });
+            ['dragenter', 'dragover', 'drop'].forEach(function(type) {
+                target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dropTransfer }));
+            });
+            return true;
+        })();
+        """
+        webView.evaluateJavaScript(js) { result, _ in
+            if let placed = result as? Bool {
+                completion(placed)
+            } else if attempt < 8 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    attach(files, into: webView, attempt: attempt + 1, completion: completion)
+                }
+            } else {
+                completion(false)
+            }
+        }
+    }
+
     private static func jsonStringLiteral(_ value: String) -> String {
         (try? String(data: JSONEncoder().encode(value), encoding: .utf8)) ?? "\"\""
     }

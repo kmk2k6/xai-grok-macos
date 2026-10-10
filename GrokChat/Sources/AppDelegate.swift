@@ -96,6 +96,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var inputWindow: InputWindow?
     /// Prompt waiting to be typed into a fresh grok.com chat after navigation.
     var pendingQuickAsk: String?
+    var pendingAttachments: [GrokAttachment] = []
+    var pendingAttachmentFallback: String?
     var settingsWindow: SettingsWindow?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
@@ -121,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Setup HotKey Manager
         HotKeyManager.shared.delegate = self
         HotKeyManager.shared.setup()
+        GrokAskService.shared.start()
         
         // Create the main window
         window = NSWindow(
@@ -1817,8 +1820,15 @@ extension AppDelegate: WKNavigationDelegate {
     func submitQuickAsk(_ prompt: String) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        beginGrokChat(prompt: trimmed, attachments: [])
+    }
+
+    /// Opens a new grok.com chat and either types `prompt` or attaches files. A failed attach falls back to `fallbackNote`.
+    func beginGrokChat(prompt: String?, attachments: [GrokAttachment], fallbackNote: String? = nil) {
         QuickAskController.close()
-        pendingQuickAsk = trimmed
+        pendingQuickAsk = prompt
+        pendingAttachments = attachments
+        pendingAttachmentFallback = fallbackNote
         showMainWindow(nil)
         updateMode(to: .chat)
         if let url = URL(string: "https://grok.com") {
@@ -1831,11 +1841,32 @@ extension AppDelegate: WKNavigationDelegate {
     }
 
     private func deliverPendingQuickAskIfNeeded(in webView: WKWebView) {
-        guard let prompt = pendingQuickAsk else { return }
+        guard pendingQuickAsk != nil || !pendingAttachments.isEmpty else { return }
         guard let host = webView.url?.host?.lowercased(),
               host == "grok.com" || host.hasSuffix(".grok.com") else { return }
+        let prompt = pendingQuickAsk
+        let attachments = pendingAttachments
+        let fallback = pendingAttachmentFallback
         pendingQuickAsk = nil
-        GrokChatInjector.inject(prompt, into: webView)
+        pendingAttachments = []
+        pendingAttachmentFallback = nil
+        if attachments.isEmpty {
+            if let prompt, !prompt.isEmpty {
+                GrokChatInjector.inject(prompt, into: webView)
+            }
+            return
+        }
+        GrokChatInjector.attach(attachments, into: webView) { ok in
+            if let prompt, !prompt.isEmpty {
+                GrokChatInjector.inject(prompt, into: webView)
+            } else if !ok, let fallback, !fallback.isEmpty {
+                GrokChatInjector.inject(fallback, into: webView)
+            }
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        GrokAskService.shared.consumeIfPresent()
     }
 
     private func injectGrokBuildNativeHookIfNeeded(in webView: WKWebView) {
