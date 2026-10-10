@@ -13,6 +13,7 @@
 		1A0000010000000000000006 /* InputWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000020000000000000006 /* InputWindow.swift */; };
 		F1A100010000000000000002 /* QuickAskPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A100010000000000000001 /* QuickAskPanel.swift */; };
 		F1A100020000000000000002 /* GrokAskService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A100020000000000000001 /* GrokAskService.swift */; };
+		F1A100030000000000000002 /* GrokChatTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A100030000000000000001 /* GrokChatTabs.swift */; };
 		1A0000010000000000000007 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000020000000000000007 /* SettingsWindow.swift */; };
 		1A0000010000000000000008 /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000020000000000000008 /* HotKeyManager.swift */; };
 		1A0000010000000000000009 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000020000000000000009 /* UpdateManager.swift */; };
@@ -59,6 +60,7 @@
 		1A0000020000000000000006 /* InputWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputWindow.swift; sourceTree = "<group>"; };
 		F1A100010000000000000001 /* QuickAskPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAskPanel.swift; sourceTree = "<group>"; };
 		F1A100020000000000000001 /* GrokAskService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokAskService.swift; sourceTree = "<group>"; };
+		F1A100030000000000000001 /* GrokChatTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokChatTabs.swift; sourceTree = "<group>"; };
 		1A0000020000000000000007 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		1A0000020000000000000008 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
 		1A0000020000000000000009 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
@@ -127,6 +129,7 @@
 				1A0000020000000000000006 /* InputWindow.swift */,
 				F1A100010000000000000001 /* QuickAskPanel.swift */,
 				F1A100020000000000000001 /* GrokAskService.swift */,
+				F1A100030000000000000001 /* GrokChatTabs.swift */,
 				1A0000020000000000000007 /* SettingsWindow.swift */,
 				1A0000050000000000000002 /* Managers */,
 				1A0000050000000000000003 /* Utils */,
@@ -313,6 +316,7 @@
 				1A0000010000000000000006 /* InputWindow.swift in Sources */,
 				F1A100010000000000000002 /* QuickAskPanel.swift in Sources */,
 				F1A100020000000000000002 /* GrokAskService.swift in Sources */,
+				F1A100030000000000000002 /* GrokChatTabs.swift in Sources */,
 				1A0000010000000000000007 /* SettingsWindow.swift in Sources */,
 				93D285732FB8ABBB009CBD10 /* SettingsManager.swift in Sources */,
 				93E100302FB8AC0000000011 /* GrokUsageBadge.swift in Sources */,

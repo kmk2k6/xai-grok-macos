@@ -81,6 +81,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var consoleWebViewLoaded = false
     private var titlebarBackgroundView: NSView?
     var webView: WKWebView!
+    var chatTabs: [GrokChatTab] = []
+    var activeChatTabIndex: Int = 0
+    var chatTabStrip: GrokChatTabStrip?
     var grokipediaWebView: WKWebView!
     var xWebView: WKWebView!
     var authPopupWindows: [NSWindow] = []
@@ -212,6 +215,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             webView.underPageBackgroundColor = grokChromeBlack
         }
         mainContainerView.addSubview(webView, positioned: .below, relativeTo: chromeEffectView)
+        adoptInitialChatTab()
 
         // Pre-load Developer View (Grok Build Agent)
         let devView = NSHostingController(rootView: BuildRootView())
@@ -393,6 +397,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyOpaqueWebChrome(_ solid: NSColor) {
         styleOpaqueWebView(webView, solid: solid)
+        for tab in chatTabs {
+            styleOpaqueWebView(tab.webView, solid: solid)
+        }
         styleOpaqueWebView(grokipediaWebView, solid: solid)
         styleOpaqueWebView(xWebView, solid: solid)
         styleOpaqueWebView(chatXWebView, solid: solid)
@@ -415,6 +422,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chromeEffectView.frame = NSRect(x: 0, y: y, width: width, height: chromeHeight)
         chromeTintView.frame = chromeEffectView.frame
         chromeBorderView.frame = NSRect(x: 0, y: y, width: width, height: 1)
+        layoutChatTabs()
         content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
         content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
         content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
@@ -611,6 +619,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let fileMenu = NSMenu(title: "File")
         fileMenuItem.submenu = fileMenu
         fileMenu.addItem(withTitle: "New Chat", action: #selector(newChat(_:)), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "New Tab", action: #selector(newChatTab(_:)), keyEquivalent: "t")
         fileMenu.addItem(withTitle: "Open Project Folder…", action: #selector(openProjectFolder(_:)), keyEquivalent: "o")
         let jumpItem = NSMenuItem(
             title: "Jump to Session…",
@@ -709,6 +718,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenuItem.submenu = windowMenu
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(NSMenuItem.separator())
+        for number in 1...9 {
+            let item = NSMenuItem(
+                title: "Chat Tab \(number)",
+                action: #selector(selectChatTabFromMenu(_:)),
+                keyEquivalent: "\(number)"
+            )
+            item.target = self
+            item.tag = number
+            windowMenu.addItem(item)
+        }
         
         NSApplication.shared.mainMenu = mainMenu
         NSApplication.shared.windowsMenu = windowMenu
@@ -734,6 +754,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func performClose(_ sender: Any?) {
+        if currentMode == .chat, chatTabs.count > 1 {
+            closeChatTab(at: activeChatTabIndex)
+            return
+        }
         window?.orderOut(sender)
     }
     
@@ -1949,9 +1973,12 @@ extension AppDelegate: WKNavigationDelegate {
         print("Page loaded successfully: \(webView.url?.absoluteString ?? "unknown")")
         #endif
         injectGrokBuildNativeHookIfNeeded(in: webView)
-        if webView === self.webView {
+        if isChatTab(webView) || webView === self.webView {
             GrokUsageBadge.injectIfNeeded(into: webView)
-            deliverPendingQuickAskIfNeeded(in: webView)
+            noteChatTabTitle(for: webView)
+            if webView === self.webView {
+                deliverPendingQuickAskIfNeeded(in: webView)
+            }
         }
     }
 
@@ -1969,10 +1996,7 @@ extension AppDelegate: WKNavigationDelegate {
         pendingAttachments = attachments
         pendingAttachmentFallback = fallbackNote
         showMainWindow(nil)
-        updateMode(to: .chat)
-        if let url = URL(string: "https://grok.com") {
-            webView.load(URLRequest(url: url))
-        }
+        newChatTab(nil)
     }
 
     @objc func showQuickAsk(_ sender: Any?) {
