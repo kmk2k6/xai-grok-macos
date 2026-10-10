@@ -5,16 +5,21 @@
 //  Adds a compact usage bolt inline to the right of the grok.com sidebar
 //  profile name. Auto-refreshes usage percentage on a timer and page load
 //  by learning and re-issuing grok.com's same-origin usage endpoint.
-//  One click opens Grok's settings Usage tab as a direct UI action.
+//  Clicking shows a native NSPopover with usage details, while Option-click
+//  or Right-click opens Grok's settings Usage tab directly.
 //
 
 import Foundation
 import WebKit
+import SwiftUI
+import AppKit
 
 enum GrokUsageBadge {
+    static let messageHandlerName = "grokUsageBadge"
     static let refreshIntervalKey = "grok.usageBadgeRefreshSeconds"
     static let percentStorageKey = "grok.usageBadge.percent"
     static let endpointStorageKey = "grok.usageBadge.endpointPath"
+    static let updatedAtStorageKey = "grok.usageBadge.updatedAt"
     static let defaultRefreshSeconds = 300 // default ~5 min, clamp 30…3600
 
     /// Persisted optional refresh interval (seconds). Clamped 30…3600.
@@ -67,6 +72,78 @@ enum GrokUsageBadge {
         _ = webView
     }
 
+    // MARK: - Native Popover Handling
+
+    static var currentPopover: NSPopover?
+
+    static func handleScriptMessage(_ message: WKScriptMessage, in webView: WKWebView) {
+        guard let body = message.body as? [String: Any],
+              let action = body["action"] as? String else {
+            return
+        }
+
+        if action == "showPopover" {
+            let x = (body["x"] as? NSNumber)?.doubleValue ?? 0
+            let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
+            let width = (body["width"] as? NSNumber)?.doubleValue ?? 22
+            let height = (body["height"] as? NSNumber)?.doubleValue ?? 22
+            let percent = body["percent"] as? Int
+            let updatedAtEpoch = (body["updatedAt"] as? NSNumber)?.doubleValue
+            let updatedAt = updatedAtEpoch != nil ? Date(timeIntervalSince1970: updatedAtEpoch! / 1000.0) : nil
+
+            showPopover(
+                anchoredAt: CGRect(x: x, y: y, width: width, height: height),
+                percent: percent,
+                updatedAt: updatedAt,
+                in: webView
+            )
+        }
+    }
+
+    static func showPopover(
+        anchoredAt rect: CGRect,
+        percent: Int?,
+        updatedAt: Date?,
+        in webView: WKWebView
+    ) {
+        if let currentPopover, currentPopover.isShown {
+            currentPopover.close()
+        }
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.appearance = NSAppearance(named: .darkAqua)
+
+        let contentView = UsagePopoverView(
+            percent: percent,
+            updatedAt: updatedAt,
+            onOpenFullUsage: { [weak webView, weak popover] in
+                popover?.close()
+                if let webView {
+                    openUsageDetails(in: webView)
+                }
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: contentView)
+        popover.contentViewController = hostingController
+        currentPopover = popover
+
+        let positioningRect = webView.isFlipped ? rect : NSRect(
+            x: rect.origin.x,
+            y: webView.bounds.height - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
+
+        popover.show(relativeTo: positioningRect, of: webView, preferredEdge: .maxX)
+    }
+
+    static func openUsageDetails(in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__grokUsageOpenDetails ? window.__grokUsageOpenDetails() : window.location.assign('/?_s=usage')", completionHandler: nil)
+    }
+
     // MARK: - JavaScript
 
     /// Injected at document-start to wrap window.fetch and XMLHttpRequest before grok.com scripts execute.
@@ -84,12 +161,14 @@ enum GrokUsageBadge {
 
       var PERCENT_KEY = "grok.usageBadge.percent";
       var ENDPOINT_PATH_KEY = "grok.usageBadge.endpointPath";
+      var UPDATED_AT_KEY = "grok.usageBadge.updatedAt";
       var CANDIDATE_URL_RE = /(?:rate[-_]?limits?|usage|quota|billing)/i;
 
       window.__grokUsageState = window.__grokUsageState || {
         percent: null,
         endpointPath: null,
-        endpointMethod: "GET"
+        endpointMethod: "GET",
+        updatedAt: null
       };
 
       function readStoredPercent() {
@@ -107,11 +186,22 @@ enum GrokUsageBadge {
         } catch (e) { return null; }
       }
 
+      function readStoredUpdatedAt() {
+        try {
+          var raw = window.localStorage.getItem(UPDATED_AT_KEY);
+          var val = parseInt(raw || "", 10);
+          return isFinite(val) && val > 0 ? val : null;
+        } catch (e) { return null; }
+      }
+
       function savePercent(value) {
         if (!isFinite(value) || value < 0 || value > 100) return;
         var rounded = Math.round(value);
+        var now = Date.now();
         window.__grokUsageState.percent = rounded;
+        window.__grokUsageState.updatedAt = now;
         try { window.localStorage.setItem(PERCENT_KEY, String(rounded)); } catch (e) {}
+        try { window.localStorage.setItem(UPDATED_AT_KEY, String(now)); } catch (e) {}
       }
 
       function saveEndpoint(urlStr, method) {
@@ -135,6 +225,9 @@ enum GrokUsageBadge {
       }
       if (!window.__grokUsageState.endpointPath) {
         window.__grokUsageState.endpointPath = readStoredEndpointPath();
+      }
+      if (!window.__grokUsageState.updatedAt) {
+        window.__grokUsageState.updatedAt = readStoredUpdatedAt();
       }
 
       function isUsageCandidateUrl(urlStr) {
@@ -451,7 +544,8 @@ enum GrokUsageBadge {
         (function() {
           var REFRESH_MS = Math.min(3600, Math.max(30, \(refreshSeconds))) * 1000;
           var PERCENT_KEY = "grok.usageBadge.percent";
-          var state = { percent: null };
+          var UPDATED_AT_KEY = "grok.usageBadge.updatedAt";
+          var state = { percent: null, updatedAt: null };
 
           function readStoredPercent() {
             try {
@@ -461,16 +555,31 @@ enum GrokUsageBadge {
             } catch (e) { return null; }
           }
 
+          function readStoredUpdatedAt() {
+            try {
+              var raw = window.localStorage.getItem(UPDATED_AT_KEY);
+              var val = parseInt(raw || "", 10);
+              return isFinite(val) && val > 0 ? val : null;
+            } catch (e) { return null; }
+          }
+
           function savePercent(value) {
             if (!isFinite(value) || value < 0 || value > 100) return;
             state.percent = Math.round(value);
-            if (window.__grokUsageState) window.__grokUsageState.percent = state.percent;
+            state.updatedAt = Date.now();
+            if (window.__grokUsageState) {
+              window.__grokUsageState.percent = state.percent;
+              window.__grokUsageState.updatedAt = state.updatedAt;
+            }
             try { window.localStorage.setItem(PERCENT_KEY, String(state.percent)); } catch (e) {}
+            try { window.localStorage.setItem(UPDATED_AT_KEY, String(state.updatedAt)); } catch (e) {}
           }
 
           state.percent = (window.__grokUsageState && window.__grokUsageState.percent != null)
             ? window.__grokUsageState.percent
             : readStoredPercent();
+          state.updatedAt = (window.__grokUsageState && window.__grokUsageState.updatedAt)
+            || readStoredUpdatedAt();
 
           if (window.__grokUsageBoltInstalled) {
             window.__grokUsageBoltRender && window.__grokUsageBoltRender();
@@ -632,7 +741,7 @@ enum GrokUsageBadge {
             while (stack.length && seen++ < 8000 && (!setTab || !setOpen)) {
               var fiber = stack.pop();
               if (!fiber) continue;
-              if (fiber.child) stack.push(fiber.child);
+              if (fiber.child) stack.child && stack.push(fiber.child);
               if (fiber.sibling) stack.push(fiber.sibling);
               var hook = fiber.memoizedState;
               var hops = 0;
@@ -699,6 +808,32 @@ enum GrokUsageBadge {
               } catch (e) {}
             }
             assignUsageDeepLink();
+          }
+
+          window.__grokUsageOpenDetails = openUsageDetails;
+
+          function showUsagePopover(el) {
+            var rect = (el && el.getBoundingClientRect) ? el.getBoundingClientRect() : { left: 0, top: 0, width: 22, height: 22 };
+            var currentPercent = (window.__grokUsageState && window.__grokUsageState.percent != null)
+              ? window.__grokUsageState.percent
+              : state.percent;
+            var currentUpdatedAt = (window.__grokUsageState && window.__grokUsageState.updatedAt)
+              || state.updatedAt
+              || readStoredUpdatedAt();
+
+            var payload = {
+              action: "showPopover",
+              x: rect.left,
+              y: rect.top,
+              width: rect.width,
+              height: rect.height,
+              percent: currentPercent,
+              updatedAt: currentUpdatedAt
+            };
+
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.grokUsageBadge) {
+              window.webkit.messageHandlers.grokUsageBadge.postMessage(payload);
+            }
           }
 
           function ensureStyle() {
@@ -786,13 +921,22 @@ enum GrokUsageBadge {
               ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "contextmenu"].forEach(function(type) {
                 bolt.addEventListener(type, function(event) {
                   swallow(event);
-                  if (type === "click") openUsageDetails();
+                  if (type === "click") {
+                    if (event.altKey) {
+                      openUsageDetails();
+                    } else {
+                      showUsagePopover(bolt);
+                    }
+                  } else if (type === "contextmenu") {
+                    openUsageDetails();
+                  }
                 }, true);
               });
               bolt.addEventListener("keydown", function(event) {
                 if (event.key === "Enter" || event.key === " ") {
                   swallow(event);
-                  openUsageDetails();
+                  if (event.altKey) openUsageDetails();
+                  else showUsagePopover(bolt);
                 }
               });
             }
@@ -863,5 +1007,72 @@ enum GrokUsageBadge {
         })();
 
         """
+    }
+}
+
+// MARK: - Native Popover View
+
+struct UsagePopoverView: View {
+    let percent: Int?
+    let updatedAt: Date?
+    let onOpenFullUsage: () -> Void
+
+    private var statusColor: Color {
+        guard let percent else { return .secondary }
+        if percent > 85 {
+            return Color(red: 0.97, green: 0.44, blue: 0.44)
+        } else if percent >= 60 {
+            return Color(red: 0.98, green: 0.75, blue: 0.14)
+        } else {
+            return Color(red: 0.29, green: 0.87, blue: 0.50)
+        }
+    }
+
+    private var updatedString: String {
+        guard let updatedAt else { return "Last updated: Not yet cached" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return "Last updated " + formatter.localizedString(for: updatedAt, relativeTo: Date())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("ϟ")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(statusColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let percent {
+                        Text("\(percent)% Used")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                    } else {
+                        Text("Usage Unknown")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    Text(updatedString)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider()
+
+            Button(action: onOpenFullUsage) {
+                HStack {
+                    Text("Open full Usage")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(14)
+        .frame(width: 220)
     }
 }

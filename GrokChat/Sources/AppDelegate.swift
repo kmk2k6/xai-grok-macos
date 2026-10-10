@@ -153,6 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Route web “Grok Build” promo CTAs into the native harness.
         config.userContentController.add(self, name: WebToBuildBridge.messageHandlerName)
+        config.userContentController.add(self, name: GrokUsageBadge.messageHandlerName)
         GrokUsageBadge.installUserScript(into: config.userContentController)
         
         // Use SilentWebView to prevent keyboard beeps when typing special characters
@@ -1570,14 +1571,17 @@ extension AppDelegate: NSToolbarDelegate {
 // MARK: - Web → Build message bridge
 extension AppDelegate: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == WebToBuildBridge.messageHandlerName else { return }
-        if let body = message.body as? [String: Any],
-           let action = body["action"] as? String,
-           action == "openNativeBuild" {
+        if message.name == WebToBuildBridge.messageHandlerName {
+            if let body = message.body as? [String: Any],
+               let action = body["action"] as? String,
+               action == "openNativeBuild" {
+                openNativeBuildFromWeb()
+                return
+            }
             openNativeBuildFromWeb()
-            return
+        } else if message.name == GrokUsageBadge.messageHandlerName {
+            GrokUsageBadge.handleScriptMessage(message, in: webView)
         }
-        openNativeBuildFromWeb()
     }
 }
 
