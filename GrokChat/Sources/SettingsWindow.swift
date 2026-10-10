@@ -132,6 +132,15 @@ class SettingsWindow: NSWindow {
         shotDropdown.target = self
         shotDropdown.action = #selector(screenshotHotkeyChanged(_:))
         stack.addArrangedSubview(shotDropdown)
+
+        let paceToggle = NSButton(
+            checkboxWithTitle: "Warn when usage is more than 15 points ahead of weekly pace",
+            target: self,
+            action: #selector(togglePaceWarning(_:))
+        )
+        paceToggle.state = UserDefaults.standard.bool(forKey: GrokUsageBadge.paceWarningEnabledKey) ? .on : .off
+        paceToggle.toolTip = "Sends one notification per week when usage runs ahead of an even weekly pace. Off by default."
+        stack.addArrangedSubview(paceToggle)
         
         stack.addArrangedSubview(createSeparator())
         
@@ -318,6 +327,10 @@ class SettingsWindow: NSWindow {
             let options = [key: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
         }
+    }
+
+    @objc func togglePaceWarning(_ sender: NSButton) {
+        UserDefaults.standard.set(sender.state == .on, forKey: GrokUsageBadge.paceWarningEnabledKey)
     }
 
     @objc func screenshotHotkeyChanged(_ sender: NSPopUpButton) {

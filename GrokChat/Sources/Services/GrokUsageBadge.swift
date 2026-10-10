@@ -26,9 +26,11 @@ enum GrokUsageBadge {
     static let endpointStorageKey = "grok.usageBadge.endpointPath"
     static let updatedAtStorageKey = "grok.usageBadge.updatedAt"
     static let notificationsEnabledKey = "grok.usageNotificationsEnabled"
+    static let paceWarningEnabledKey = "grok.usagePaceWarningEnabled"
     private static let notified80Key = "grok.usageBadge.notified80"
     private static let notified95Key = "grok.usageBadge.notified95"
     private static let lastNotifiedPercentKey = "grok.usageBadge.lastPercent"
+    private static let paceWarnedWeekKey = "grok.usageBadge.paceWarnedWeek"
     static let defaultRefreshSeconds = 300 // default ~5 min, clamp 30…3600
 
     /// Persisted optional refresh interval (seconds). Clamped 30…3600.
@@ -122,6 +124,32 @@ enum GrokUsageBadge {
         UserDefaults.standard.set(notified80, forKey: notified80Key)
         UserDefaults.standard.set(notified95, forKey: notified95Key)
         UserDefaults.standard.set(percent, forKey: lastNotifiedPercentKey)
+        checkPaceWarning(percent: percent)
+    }
+
+    /// Optional alert when usage is more than 15 points ahead of even weekly pacing. Once per calendar week.
+    static func checkPaceWarning(percent: Int) {
+        guard notificationsEnabled else { return }
+        guard UserDefaults.standard.bool(forKey: paceWarningEnabledKey) else { return }
+        let ahead = UsagePaceStore.pointsAhead(percent: percent)
+        let weekId = paceWeekIdentifier()
+        if ahead <= 15 {
+            if UserDefaults.standard.string(forKey: paceWarnedWeekKey) == weekId {
+                UserDefaults.standard.removeObject(forKey: paceWarnedWeekKey)
+            }
+            return
+        }
+        if UserDefaults.standard.string(forKey: paceWarnedWeekKey) == weekId { return }
+        UserDefaults.standard.set(weekId, forKey: paceWarnedWeekKey)
+        postUsageNotification(
+            title: "Grok usage is ahead of pace",
+            body: "Usage is \(Int(ahead.rounded())) points ahead of even weekly pacing (\(percent)% used)."
+        )
+    }
+
+    private static func paceWeekIdentifier(at date: Date = Date()) -> String {
+        let start = Calendar.current.dateInterval(of: .weekOfYear, for: date)?.start.timeIntervalSince1970 ?? 0
+        return String(Int(start))
     }
 
     private static func postUsageNotification(title: String, body: String) {
