@@ -105,6 +105,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var promptLibraryPanel: PromptLibraryPanel?
     var findBar: GrokFindBar?
     var zenMode = false
+    var pipWindow: NSWindow?
+    var pipWebView: WKWebView?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
     
@@ -314,6 +316,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Make the webview the first responder
         window.makeFirstResponder(webView)
         applyStoredZoom()
+        refreshDockBadge()
         
         // Initialize Input Window (hidden by default)
         inputWindow = InputWindow()
@@ -484,6 +487,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func usagePercentChanged(_ note: Notification) {
         refreshUsageStatusButton()
+        refreshDockBadge()
+    }
+
+    func refreshDockBadge() {
+        guard UserDefaults.standard.bool(forKey: "grok.dockBadge.enabled") else {
+            NSApp.dockTile.badgeLabel = nil
+            return
+        }
+        if let percent = UserDefaults.standard.object(forKey: GrokUsageBadge.percentStorageKey) as? Int {
+            NSApp.dockTile.badgeLabel = "\(percent)"
+        }
     }
 
     func refreshUsageStatusButton() {
@@ -753,6 +767,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(windowMenuItem)
         let windowMenu = NSMenu(title: "Window")
         windowMenuItem.submenu = windowMenu
+        windowMenu.addItem(withTitle: "Mini Chat", action: #selector(toggleMiniChat(_:)), keyEquivalent: "")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowMenu.addItem(NSMenuItem.separator())
@@ -2040,6 +2055,50 @@ extension AppDelegate: WKNavigationDelegate {
                 if zenMode { applyZenStyle(to: webView) }
             }
         }
+    }
+
+    @objc func toggleMiniChat(_ sender: Any?) {
+        if let pipWindow, pipWindow.isVisible {
+            pipWindow.orderOut(nil)
+            return
+        }
+        if pipWindow == nil {
+            let mini = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 380, height: 520),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            mini.title = "Grok Mini"
+            mini.level = .floating
+            mini.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            mini.isReleasedWhenClosed = false
+            mini.minSize = NSSize(width: 280, height: 320)
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .default()
+            let prefs = WKWebpagePreferences()
+            prefs.allowsContentJavaScript = true
+            config.defaultWebpagePreferences = prefs
+            let miniWeb = SilentWebView(frame: .zero, configuration: config)
+            miniWeb.autoresizingMask = [.width, .height]
+            miniWeb.frame = NSRect(x: 0, y: 0, width: 380, height: 520)
+            mini.contentView = miniWeb
+            pipWebView = miniWeb
+            pipWindow = mini
+        }
+        let current = webView.url
+        let allowed = current?.host?.lowercased()
+        let url: URL
+        if let current, let host = allowed, host == "grok.com" || host.hasSuffix(".grok.com") || host == "x.com" || host.hasSuffix(".x.com") {
+            url = current
+        } else if let fallback = URL(string: "https://grok.com") {
+            url = fallback
+        } else {
+            return
+        }
+        pipWebView?.load(URLRequest(url: url))
+        pipWindow?.center()
+        pipWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc func toggleZen(_ sender: Any?) {
