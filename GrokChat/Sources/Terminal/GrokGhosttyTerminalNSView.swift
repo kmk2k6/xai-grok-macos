@@ -16,6 +16,7 @@ final class GrokGhosttyTerminalNSView: NSView, LocalProcessTerminalViewDelegate 
     private var launchError: String?
     private var isRelaunching = false
     private var statusOverlay: NSTextField?
+    private var themeObserver: NSObjectProtocol?
 
     init(
         sessionId: UUID,
@@ -29,8 +30,15 @@ final class GrokGhosttyTerminalNSView: NSView, LocalProcessTerminalViewDelegate 
         self.workingDirectory = workingDirectory
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = GrokTerminalTheme.backgroundColor.cgColor
+        layer?.backgroundColor = GrokTerminalTheme.palette.background.cgColor
         Self.register(self, for: sessionId)
+        themeObserver = NotificationCenter.default.addObserver(
+            forName: .grokTerminalAppearanceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyAppearance()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -38,8 +46,41 @@ final class GrokGhosttyTerminalNSView: NSView, LocalProcessTerminalViewDelegate 
     }
 
     deinit {
+        if let themeObserver {
+            NotificationCenter.default.removeObserver(themeObserver)
+        }
         Self.unregister(sessionId)
         terminalView?.terminate()
+    }
+
+    static func selectedText(sessionId: UUID) -> String {
+        registryLock.lock()
+        let view = registry[sessionId]?.view
+        registryLock.unlock()
+        return view?.selectedText() ?? ""
+    }
+
+    func selectedText() -> String {
+        guard let terminalView else { return "" }
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        let before = pasteboard.changeCount
+        terminalView.copy(self)
+        guard pasteboard.changeCount != before, let selected = pasteboard.string(forType: .string) else { return "" }
+        pasteboard.clearContents()
+        if let previous {
+            pasteboard.setString(previous, forType: .string)
+        }
+        return selected
+    }
+
+    func applyAppearance() {
+        let palette = GrokTerminalTheme.palette
+        layer?.backgroundColor = palette.background.cgColor
+        guard let terminalView else { return }
+        terminalView.font = NSFont.monospacedSystemFont(ofSize: GrokTerminalTheme.fontSize, weight: .regular)
+        terminalView.nativeForegroundColor = palette.foreground
+        terminalView.nativeBackgroundColor = palette.background
     }
 
     @discardableResult
@@ -153,6 +194,7 @@ final class GrokGhosttyTerminalNSView: NSView, LocalProcessTerminalViewDelegate 
             environment.append("TERM_PROGRAM=Grok")
         }
 
+        applyAppearance()
         term.startProcess(
             executable: executable,
             args: arguments,

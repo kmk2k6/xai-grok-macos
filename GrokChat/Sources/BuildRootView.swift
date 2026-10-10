@@ -128,6 +128,15 @@ struct BuildRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .buildDidBecomeActive)) { _ in
             enterBuildWorkspace()
+            if UserDefaults.standard.string(forKey: GrokTerminalTheme.pendingPathKey) != nil {
+                utilityPaneMode = .terminal
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grokOpenShellTerminal)) { note in
+            if let path = note.object as? String {
+                openProject(URL(fileURLWithPath: path))
+            }
+            utilityPaneMode = .terminal
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("OpenProjectFolder"))) { _ in
             startNewAgent()
@@ -1446,11 +1455,21 @@ private struct BuildUtilityPane: View {
     }
 }
 
-/// Interactive login shell rooted at the selected project (zsh/bash via $SHELL).
+/// Interactive login shells. Several tabs can stay open, and one split sits beside the active tab.
+private struct ShellTab: Identifiable, Equatable {
+    let id: UUID
+    var path: String
+    var title: String { URL(fileURLWithPath: path).lastPathComponent }
+}
+
 private struct BuildShellTerminalPane: View {
     let project: AgentProject?
-    @State private var sessionId = UUID()
-    @State private var boundPath: String?
+    @State private var tabs: [ShellTab] = []
+    @State private var activeID: UUID?
+    @State private var split = false
+    @State private var splitID = UUID()
+    @AppStorage(GrokTerminalTheme.fontSizeKey) private var fontSize: Double = 13
+    @AppStorage(GrokTerminalTheme.themeKey) private var theme: String = "dark"
 
     private var shellExecutable: String {
         if let shell = ProcessInfo.processInfo.environment["SHELL"],
@@ -1461,70 +1480,160 @@ private struct BuildShellTerminalPane: View {
         return "/bin/bash"
     }
 
+    private var activeTab: ShellTab? {
+        tabs.first { $0.id == activeID } ?? tabs.first
+    }
+
     var body: some View {
         Group {
-            if let project, WorkspaceStore.directoryExists(at: project.path) {
-                VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        Text(shellExecutable)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(project.path)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        Button {
-                            remountShell(for: project.path)
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Restart shell")
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 32)
-                    Divider()
-                    GrokGhosttyTerminalView(
-                        sessionId: sessionId,
-                        executable: shellExecutable,
-                        arguments: ["-l"],
-                        workingDirectory: project.path,
-                        isActive: true,
-                        isVisibleInUI: true
-                    )
-                }
-                .onAppear { bind(to: project.path) }
-                .onChange(of: project.path) { _, newPath in
-                    bind(to: newPath)
-                }
-            } else {
+            if tabs.isEmpty, project == nil || project.map({ WorkspaceStore.directoryExists(at: $0.path) }) == false {
                 utilityEmptyState(
                     icon: "terminal",
                     title: "Open a project",
                     subtitle: "Terminal opens an interactive shell in the selected folder."
                 )
+            } else {
+                VStack(spacing: 0) {
+                    tabBar
+                    Divider()
+                    if split, let activeTab {
+                        HStack(spacing: 0) {
+                            terminal(activeTab, session: activeTab.id)
+                            Divider()
+                            terminal(activeTab, session: splitID)
+                        }
+                    } else if let activeTab {
+                        terminal(activeTab, session: activeTab.id)
+                    }
+                }
             }
+        }
+        .onAppear {
+            consumePendingPath()
+            if tabs.isEmpty, let path = project?.path, WorkspaceStore.directoryExists(at: path) {
+                addTab(path: path)
+            }
+        }
+        .onChange(of: project?.path) { _, newPath in
+            guard let newPath, WorkspaceStore.directoryExists(at: newPath) else { return }
+            if tabs.isEmpty { addTab(path: newPath) }
+        }
+        .onChange(of: fontSize) { _, _ in
+            NotificationCenter.default.post(name: .grokTerminalAppearanceChanged, object: nil)
+        }
+        .onChange(of: theme) { _, _ in
+            NotificationCenter.default.post(name: .grokTerminalAppearanceChanged, object: nil)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grokOpenShellTerminal)) { note in
+            if let path = note.object as? String, WorkspaceStore.directoryExists(at: path) {
+                addTab(path: path)
+            }
+            consumePendingPath()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grokSendTerminalSelection)) { _ in
+            sendSelectionToGrok()
         }
     }
 
-    private func bind(to path: String) {
-        guard boundPath != path else { return }
-        remountShell(for: path)
+    private var tabBar: some View {
+        HStack(spacing: 6) {
+            ForEach(tabs) { tab in
+                Button {
+                    activeID = tab.id
+                } label: {
+                    Text(tab.title)
+                        .font(.system(size: 11, weight: tab.id == activeID ? .semibold : .regular))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Terminal tab \(tab.title)")
+                if tabs.count > 1 {
+                    Button {
+                        close(tab)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close terminal tab \(tab.title)")
+                }
+            }
+            Button { addTab(path: activeTab?.path ?? project?.path ?? NSHomeDirectory()) } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New terminal tab")
+            Spacer(minLength: 0)
+            Button { split.toggle() } label: {
+                Image(systemName: "rectangle.split.2x1")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(split ? "Close split terminal" : "Split terminal")
+            Picker("Font", selection: $fontSize) {
+                Text("11").tag(11.0)
+                Text("13").tag(13.0)
+                Text("15").tag(15.0)
+                Text("18").tag(18.0)
+            }
+            .pickerStyle(.menu)
+            .frame(width: 64)
+            .accessibilityLabel("Terminal font size")
+            Picker("Theme", selection: $theme) {
+                Text("Dark").tag("dark")
+                Text("Light").tag("light")
+            }
+            .pickerStyle(.menu)
+            .frame(width: 80)
+            .accessibilityLabel("Terminal theme")
+            Button("Send selection to Grok", action: sendSelectionToGrok)
+                .buttonStyle(.borderless)
+                .font(.system(size: 11))
+                .accessibilityLabel("Send selection to Grok")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
     }
 
-    private func remountShell(for path: String) {
-        GrokGhosttyTerminalNSView.prepareForReplacement(sessionId: sessionId)
-        sessionId = UUID()
-        boundPath = path
+    private func terminal(_ tab: ShellTab, session: UUID) -> some View {
+        GrokGhosttyTerminalView(
+            sessionId: session,
+            executable: shellExecutable,
+            arguments: ["-l"],
+            workingDirectory: tab.path,
+            isActive: true,
+            isVisibleInUI: true
+        )
+    }
+
+    private func addTab(path: String) {
+        if let existing = tabs.first(where: { $0.path == path }) {
+            activeID = existing.id
+            return
+        }
+        let tab = ShellTab(id: UUID(), path: path)
+        tabs.append(tab)
+        activeID = tab.id
+    }
+
+    private func close(_ tab: ShellTab) {
+        GrokGhosttyTerminalNSView.prepareForReplacement(sessionId: tab.id)
+        tabs.removeAll { $0.id == tab.id }
+        if activeID == tab.id { activeID = tabs.last?.id }
+    }
+
+    private func consumePendingPath() {
+        guard let path = UserDefaults.standard.string(forKey: GrokTerminalTheme.pendingPathKey),
+              WorkspaceStore.directoryExists(at: path) else { return }
+        UserDefaults.standard.removeObject(forKey: GrokTerminalTheme.pendingPathKey)
+        addTab(path: path)
+    }
+
+    private func sendSelectionToGrok() {
+        guard let activeID else { return }
+        let text = GrokGhosttyTerminalNSView.selectedText(sessionId: activeID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        (NSApp.delegate as? AppDelegate)?.beginGrokChat(prompt: text, attachments: [])
     }
 }
 

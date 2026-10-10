@@ -12,7 +12,7 @@ struct GrokAttachment {
 /// The system Services menu comes from workflows in ~/Library/Services so the app Info.plist stays untouched.
 final class GrokAskService: NSObject {
     static let shared = GrokAskService()
-    static let version = 1
+    static let version = 2
 
     private var watch: DispatchSourceFileSystemObject?
     private var watchFD: Int32 = -1
@@ -48,8 +48,14 @@ final class GrokAskService: NSObject {
               let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         try? FileManager.default.removeItem(at: url)
-        if let text = object["text"] as? String, object["kind"] as? String == "text" {
+        let kind = object["kind"] as? String
+        if kind == "text", let text = object["text"] as? String {
             receive(text: text)
+        } else if kind == "terminal", let path = object["path"] as? String, !path.isEmpty {
+            UserDefaults.standard.set(path, forKey: GrokTerminalTheme.pendingPathKey)
+            DispatchQueue.main.async {
+                (NSApp.delegate as? AppDelegate)?.showShellTerminal(path: path)
+            }
         } else if let paths = object["paths"] as? [String] {
             receive(files: paths)
         }
@@ -140,9 +146,11 @@ final class GrokAskService: NSObject {
             .appendingPathComponent("Library/Services", isDirectory: true)
         let textURL = services.appendingPathComponent("Ask Grok about this.workflow")
         let fileURL = services.appendingPathComponent("Ask Grok about these files.workflow")
+        let terminalURL = services.appendingPathComponent("Open in Terminal pane.workflow")
         if stamp == Self.version,
            FileManager.default.fileExists(atPath: textURL.path),
-           FileManager.default.fileExists(atPath: fileURL.path) {
+           FileManager.default.fileExists(atPath: fileURL.path),
+           FileManager.default.fileExists(atPath: terminalURL.path) {
             return
         }
         try? FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
@@ -166,6 +174,17 @@ final class GrokAskService: NSObject {
             finderOnly: true,
             inputIdentifier: "com.apple.Automator.fileSystemObject",
             command: Self.fileScript,
+            arguments: true
+        )
+        writeWorkflow(
+            at: terminalURL,
+            bundleID: "com.xai.Grok.open-terminal",
+            menuTitle: "Open in Terminal pane",
+            sendTypes: nil,
+            fileTypes: ["public.folder"],
+            finderOnly: true,
+            inputIdentifier: "com.apple.Automator.fileSystemObject",
+            command: Self.terminalScript,
             arguments: true
         )
         UserDefaults.standard.set(Self.version, forKey: "grok.askServiceVersion")
@@ -282,6 +301,19 @@ final class GrokAskService: NSObject {
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps({"kind":"files","paths":sys.argv[1:]}))
+    tmp.replace(p)
+    PY
+    open -a Grok
+    """
+
+    private static let terminalScript = """
+    /usr/bin/python3 - "$@" <<'PY'
+    import json, pathlib, sys
+    p = pathlib.Path.home() / "Library/Application Support/Grok/pending-ask.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.tmp")
+    folder = sys.argv[1] if len(sys.argv) > 1 else ""
+    tmp.write_text(json.dumps({"kind":"terminal","path":folder}))
     tmp.replace(p)
     PY
     open -a Grok

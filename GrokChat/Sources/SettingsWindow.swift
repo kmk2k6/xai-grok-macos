@@ -292,6 +292,32 @@ class SettingsWindow: NSWindow {
         let clearButton = NSButton(title: "Clear All History", target: self, action: #selector(clearHistory(_:)))
         clearButton.bezelStyle = .rounded
         stack.addArrangedSubview(clearButton)
+        let terminalLabel = NSTextField(labelWithString: "Terminal")
+        terminalLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        stack.addArrangedSubview(terminalLabel)
+        let fontRow = NSStackView()
+        fontRow.orientation = .horizontal
+        fontRow.spacing = 8
+        fontRow.addArrangedSubview(NSTextField(labelWithString: "Font size"))
+        let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for size in [11, 13, 15, 18] {
+            fontPopup.addItem(withTitle: "\(size)")
+            fontPopup.lastItem?.tag = size
+        }
+        let storedSize = Int(UserDefaults.standard.object(forKey: GrokTerminalTheme.fontSizeKey) as? Double ?? 13)
+        fontPopup.selectItem(withTag: storedSize == 0 ? 13 : storedSize)
+        fontPopup.target = self
+        fontPopup.action = #selector(terminalFontChanged(_:))
+        fontPopup.setAccessibilityLabel("Terminal font size")
+        fontRow.addArrangedSubview(fontPopup)
+        stack.addArrangedSubview(fontRow)
+        let themePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        themePopup.addItems(withTitles: ["Dark", "Light"])
+        themePopup.selectItem(at: UserDefaults.standard.string(forKey: GrokTerminalTheme.themeKey) == "light" ? 1 : 0)
+        themePopup.target = self
+        themePopup.action = #selector(terminalThemeChanged(_:))
+        themePopup.setAccessibilityLabel("Terminal theme")
+        stack.addArrangedSubview(themePopup)
         grokRows = stack
         labelNativeRows(stack)
         
@@ -430,6 +456,16 @@ class SettingsWindow: NSWindow {
         }
     }
     
+    @objc func terminalFontChanged(_ sender: NSPopUpButton) {
+        UserDefaults.standard.set(Double(sender.selectedTag()), forKey: GrokTerminalTheme.fontSizeKey)
+        NotificationCenter.default.post(name: .grokTerminalAppearanceChanged, object: nil)
+    }
+
+    @objc func terminalThemeChanged(_ sender: NSPopUpButton) {
+        UserDefaults.standard.set(sender.indexOfSelectedItem == 1 ? "light" : "dark", forKey: GrokTerminalTheme.themeKey)
+        NotificationCenter.default.post(name: .grokTerminalAppearanceChanged, object: nil)
+    }
+
     @objc func checkForUpdates(_ sender: Any?) {
         UpdateManager.shared.checkForUpdates(sender)
     }

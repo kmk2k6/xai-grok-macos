@@ -788,6 +788,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         zenItem.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(zenItem)
+        viewMenu.addItem(withTitle: "Build Terminal", action: #selector(showBuildTerminal(_:)), keyEquivalent: "`")
+        let sendSelection = NSMenuItem(
+            title: "Send Terminal Selection to Grok",
+            action: #selector(sendTerminalSelection(_:)),
+            keyEquivalent: ""
+        )
+        viewMenu.addItem(sendSelection)
         
         // History Menu
         let historyMenuItem = NSMenuItem()
@@ -883,6 +890,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Command-Shift-F       Focus mode
             Command-Control-F     Full screen
             Command-= / - / 0     Zoom in, out, actual size
+            Command-`             Build terminal
             Command-/             This cheat sheet
             Command-N             New chat in the current tab
             Command-,             Settings
@@ -2171,6 +2179,24 @@ extension AppDelegate: WKNavigationDelegate {
                 if zenMode { applyZenStyle(to: webView) }
             }
         }
+    }
+
+    @objc func showBuildTerminal(_ sender: Any?) {
+        showShellTerminal(path: nil)
+    }
+
+    @objc func sendTerminalSelection(_ sender: Any?) {
+        showShellTerminal(path: nil)
+        NotificationCenter.default.post(name: .grokSendTerminalSelection, object: nil)
+    }
+
+    func showShellTerminal(path: String?) {
+        if let path {
+            UserDefaults.standard.set(path, forKey: GrokTerminalTheme.pendingPathKey)
+        }
+        showMainWindow(nil)
+        updateMode(to: .developer)
+        NotificationCenter.default.post(name: .grokOpenShellTerminal, object: path)
     }
 
     @objc func toggleMiniChat(_ sender: Any?) {
