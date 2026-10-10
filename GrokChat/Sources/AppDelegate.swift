@@ -1596,6 +1596,30 @@ extension AppDelegate: HotKeyDelegate {
     func hotKeyTriggered() {
         QuickAskController.toggle()
     }
+
+    func screenshotHotKeyTriggered() {
+        captureScreenRegion()
+    }
+
+    /// `screencapture -i` writes a region to a temp file, then attaches it to a new grok.com chat.
+    private func captureScreenRegion() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("GrokShot-\(UUID().uuidString).png")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-i", url.path]
+        process.terminationHandler = { process in
+            DispatchQueue.main.async {
+                guard process.terminationStatus == 0,
+                      let attachment = GrokAskService.attachment(at: url.path) else { return }
+                (NSApp.delegate as? AppDelegate)?.beginGrokChat(
+                    prompt: nil,
+                    attachments: [attachment],
+                    fallbackNote: url.path
+                )
+            }
+        }
+        try? process.run()
+    }
 }
 
 // MARK: - WKUIDelegate for media permissions

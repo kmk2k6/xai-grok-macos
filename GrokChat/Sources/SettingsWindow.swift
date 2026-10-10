@@ -117,6 +117,21 @@ class SettingsWindow: NSWindow {
         selectionToggle.state = UserDefaults.standard.bool(forKey: QuickAskController.prefillFromSelectionKey) ? .on : .off
         selectionToggle.toolTip = "When on, Quick Ask sends Command-C to the frontmost app and prefills that selection. Off by default. Accessibility permission is required."
         stack.addArrangedSubview(selectionToggle)
+
+        let shotLabel = NSTextField(labelWithString: "Screenshot to Grok")
+        shotLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        stack.addArrangedSubview(shotLabel)
+
+        let shotDropdown = NSPopUpButton(frame: .zero, pullsDown: false)
+        shotDropdown.addItems(withTitles: [
+            "Control + Option + 4",
+            "Option + Shift + 4",
+            "Control + Shift + 4"
+        ])
+        shotDropdown.selectItem(at: UserDefaults.standard.integer(forKey: "screenshotHotkeyPreset"))
+        shotDropdown.target = self
+        shotDropdown.action = #selector(screenshotHotkeyChanged(_:))
+        stack.addArrangedSubview(shotDropdown)
         
         stack.addArrangedSubview(createSeparator())
         
@@ -302,6 +317,12 @@ class SettingsWindow: NSWindow {
             let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
             let options = [key: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
+        }
+    }
+
+    @objc func screenshotHotkeyChanged(_ sender: NSPopUpButton) {
+        if let preset = HotKeyManager.ScreenshotPreset(rawValue: sender.indexOfSelectedItem) {
+            HotKeyManager.shared.setScreenshotPreset(preset)
         }
     }
 

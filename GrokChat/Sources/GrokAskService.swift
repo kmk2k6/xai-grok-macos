@@ -84,7 +84,7 @@ final class GrokAskService: NSObject {
         }
     }
 
-    private static func attachment(at path: String) -> GrokAttachment? {
+    static func attachment(at path: String) -> GrokAttachment? {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else { return nil }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)), !data.isEmpty, data.count <= 6_000_000 else { return nil }

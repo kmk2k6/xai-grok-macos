@@ -13,6 +13,7 @@ import Carbon
 
 protocol HotKeyDelegate: AnyObject {
     func hotKeyTriggered()
+    func screenshotHotKeyTriggered()
 }
 
 class HotKeyManager {
@@ -21,6 +22,7 @@ class HotKeyManager {
     
     private var eventHandler: EventHandlerRef?
     private var hotKeyRef: EventHotKeyRef?
+    private var screenshotHotKeyRef: EventHotKeyRef?
     private var hotKeyID = EventHotKeyID(signature: OSType(0x47524F4B), id: 1) // 'GROK', 1
     
     private var currentKeyCode: UInt32 = 49 // Space
@@ -60,13 +62,52 @@ class HotKeyManager {
             }
         }
     }
+
+    /// Region-capture shortcut. Default is Control-Option-4.
+    enum ScreenshotPreset: Int {
+        case controlOption4 = 0
+        case optionShift4 = 1
+        case controlShift4 = 2
+
+        var name: String {
+            switch self {
+            case .controlOption4: return "Control + Option + 4"
+            case .optionShift4: return "Option + Shift + 4"
+            case .controlShift4: return "Control + Shift + 4"
+            }
+        }
+
+        var keyCode: UInt32 { 21 } // kVK_ANSI_4
+
+        var modifiers: UInt32 {
+            switch self {
+            case .controlOption4: return UInt32(controlKey | optionKey)
+            case .optionShift4: return UInt32(optionKey | shiftKey)
+            case .controlShift4: return UInt32(controlKey | shiftKey)
+            }
+        }
+    }
     
     func setup() {
         // Install event handler
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         
         InstallEventHandler(GetApplicationEventTarget(), { (_, event, _) -> OSStatus in
-            HotKeyManager.shared.delegate?.hotKeyTriggered()
+            var pressed = EventHotKeyID()
+            let status = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &pressed
+            )
+            if status == noErr && pressed.id == 2 {
+                HotKeyManager.shared.delegate?.screenshotHotKeyTriggered()
+            } else {
+                HotKeyManager.shared.delegate?.hotKeyTriggered()
+            }
             return noErr
         }, 1, &eventType, nil, &eventHandler)
         
@@ -74,6 +115,8 @@ class HotKeyManager {
         let saved = UserDefaults.standard.integer(forKey: "hotkeyPreset")
         let preset = ShortcutPreset(rawValue: saved) ?? .optionSpace
         setPreset(preset)
+        let shot = ScreenshotPreset(rawValue: UserDefaults.standard.integer(forKey: "screenshotHotkeyPreset")) ?? .controlOption4
+        setScreenshotPreset(shot)
     }
     
     func setPreset(_ preset: ShortcutPreset) {
@@ -91,5 +134,15 @@ class HotKeyManager {
         #if DEBUG
         print("Registered HotKey: \(preset.name)")
         #endif
+    }
+
+    func setScreenshotPreset(_ preset: ScreenshotPreset) {
+        UserDefaults.standard.set(preset.rawValue, forKey: "screenshotHotkeyPreset")
+        if let ref = screenshotHotKeyRef {
+            UnregisterEventHotKey(ref)
+            screenshotHotKeyRef = nil
+        }
+        let id = EventHotKeyID(signature: OSType(0x47524F4B), id: 2)
+        RegisterEventHotKey(preset.keyCode, preset.modifiers, id, GetApplicationEventTarget(), 0, &screenshotHotKeyRef)
     }
 }
