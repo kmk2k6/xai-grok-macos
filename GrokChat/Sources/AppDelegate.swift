@@ -25,6 +25,29 @@ enum AppMode {
     case grokipedia
     case xTwitter
     case chatX  // chat.x.com - X's native chat interface
+
+    var sessionKey: String {
+        switch self {
+        case .chat: return "chat"
+        case .developer: return "developer"
+        case .console: return "console"
+        case .grokipedia: return "grokipedia"
+        case .xTwitter: return "xTwitter"
+        case .chatX: return "chatX"
+        }
+    }
+
+    static func from(sessionKey: String) -> AppMode? {
+        switch sessionKey {
+        case "chat": return .chat
+        case "developer": return .developer
+        case "console": return .console
+        case "grokipedia": return .grokipedia
+        case "xTwitter": return .xTwitter
+        case "chatX": return .chatX
+        default: return nil
+        }
+    }
 }
 
 // Custom WKWebView that prevents system beep when typing special characters
@@ -322,6 +345,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize Input Window (hidden by default)
         inputWindow = InputWindow()
+        restoreLastSession()
+    }
+
+    private static let sessionModeKey = "grok.lastMode"
+    private static let sessionURLKey = "grok.lastURL"
+
+    static func sessionURLIsRestorable(_ url: URL) -> Bool {
+        guard url.scheme == "https", let host = url.host?.lowercased() else { return false }
+        return host == "grok.com" || host.hasSuffix(".grok.com")
+            || host == "x.com" || host.hasSuffix(".x.com")
+            || host == "grokipedia.com" || host.hasSuffix(".grokipedia.com")
+            || host == "console.x.ai"
+    }
+
+    func rememberSession() {
+        UserDefaults.standard.set(currentMode.sessionKey, forKey: Self.sessionModeKey)
+    }
+
+    func rememberURL(_ url: URL?) {
+        guard let url, Self.sessionURLIsRestorable(url) else { return }
+        UserDefaults.standard.set(url.absoluteString, forKey: Self.sessionURLKey)
+    }
+
+    func restoreLastSession() {
+        let mode = AppMode.from(sessionKey: UserDefaults.standard.string(forKey: Self.sessionModeKey) ?? "") ?? .chat
+        if mode != currentMode {
+            updateMode(to: mode)
+        }
+        guard mode != .developer,
+              let raw = UserDefaults.standard.string(forKey: Self.sessionURLKey),
+              let url = URL(string: raw),
+              Self.sessionURLIsRestorable(url) else { return }
+        let target: WKWebView
+        switch mode {
+        case .grokipedia: target = grokipediaWebView
+        case .xTwitter: target = xWebView
+        case .chatX: target = chatXWebView
+        case .console: target = consoleWebView
+        default: target = webView
+        }
+        target.load(URLRequest(url: url))
     }
 
     /// Solid #000000 when glass is off or see-through is low. Frosted strip over the titlebar when dialed up.
@@ -1363,6 +1427,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func updateMode(to mode: AppMode) {
         if mode == currentMode {
             updateWindowChrome(for: mode)
+            rememberSession()
             if mode == .developer, let devView = devViewController?.view {
                 if devView.superview == nil {
                     mainContainerView.subviews.forEach { $0.removeFromSuperview() }
@@ -1415,6 +1480,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         updateWindowChrome(for: mode)
         applyStoredZoom()
+        rememberSession()
     }
 
     private func updateWindowChrome(for mode: AppMode) {
@@ -2089,6 +2155,9 @@ extension AppDelegate: WKNavigationDelegate {
     }
     
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if isChatTab(webView) || webView === self.webView || webView === grokipediaWebView || webView === xWebView || webView === chatXWebView || (consoleWebViewLoaded && webView === consoleWebView) {
+            rememberURL(webView.url)
+        }
         #if DEBUG
         print("Page loaded successfully: \(webView.url?.absoluteString ?? "unknown")")
         #endif
