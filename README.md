@@ -35,63 +35,65 @@ Unlike web-based alternatives, this app is built entirely in **Swift and SwiftUI
 
 ## ✨ Features
 
-### 🤖 Full Grok Model Support
-Access all available Grok models through the xAI API:
+### ⚡ Quick Ask
+Summon a prompt from any app:
+- **Option-Space** opens a floating panel. Enter starts a new [grok.com](https://grok.com) chat and brings Grok forward. Esc closes the panel.
+- The shortcut is configurable in Settings.
+- **Prefill from selection** stays off until you enable it. When it is on, Quick Ask copies the frontmost selection, then restores the clipboard.
+- The Services menu and a Finder Quick Action, **Ask Grok about this**, send selected text or files into a new chat.
+- **Control-Option-4** captures a screen region and attaches the image to a new chat.
+- File → **Quick Query** (⌘Space) is a separate input window.
 
-| Model | Best For | Context Window |
-|-------|----------|----------------|
-| **Grok 4** | Complex reasoning, analysis | 256K tokens |
-| **Grok 4.1 Fast** | Speed + quality balance | 2M tokens |
-| **Grok 3** | General purpose | 131K tokens |
-| **Grok 3 Mini** | Quick responses, cost-effective | 131K tokens |
-| **Grok 2 Vision** | Image analysis | 128K tokens |
-| **Grok Build** | Programming assistance | 128K tokens |
+### 💬 grok.com tabs and page tools
+- **⌘T** opens a new grok.com tab. **⌘W** closes a tab, and hides the window when it is the last one. **⌘1–9** switch tabs.
+- **⌘F** finds text in the page. **⌘=**, **⌘-**, and **⌘0** zoom in, out, and back to actual size. Zoom is remembered per mode.
+- **⌘⇧F** is focus mode: chrome hides and the page sits in a narrow centered column. Full screen is **⌘⌃F**.
+- **⌘⇧P** opens the prompt library. The library imports and exports as JSON.
+- **Export Chat…** saves the open page's text as Markdown or PDF.
+- **Mini Chat** floats a small always-on-top grok.com window on the same website data store.
+- Relaunch restores the last mode, the last allowed URL, and the autosaved window frame.
 
-### 💬 Developer Chat Mode
-A powerful chat interface designed for developers:
-- **Markdown rendering** with full syntax highlighting
-- **Code blocks** with copy button and language detection
-- **Image attachments** — drag & drop or paste images for vision models
-- **Conversation history** — saved locally, searchable, exportable
-- **Multi-turn conversations** with full context preservation
+### 📊 Menu bar usage
+The bolt in the menu bar shows the usage percent reported by the page, recent grok.com chats, New Chat, Quick Ask, and Grok Bot.
+- A weekly sparkline says whether you are on pace or ahead of an even weekly pace. Samples stay on this Mac for 14 days.
+- The pace warning is off until you enable it in Settings. It fires at most once a week, and only when usage is more than 15 points ahead of even pacing.
+- An optional Dock badge shows the same percent.
+- Quiet hours (default 22:00–07:00) and macOS Focus hold those usage alerts.
 
-### ⌨️ Global Hotkey Access
-Summon Grok from anywhere on your Mac:
-- **⌘⇧G** (Command+Shift+G) — Default hotkey
-- Customizable: Option+Space, Control+Space, Option+G
-- Works from any app, any window
+### 🔄 Modes
 
-### 🔒 Secure by Design
-Your data stays on your machine:
-- **API key stored in macOS Keychain** — Not in plain text
-- **No telemetry or tracking** — We don't collect any data
-- **Local conversation history** — Nothing leaves your Mac
-- **Safety Mode** — Optional protection against destructive commands
+| Mode | Opens |
+|------|--------|
+| **Grok** | grok.com |
+| **Chat** | chat.x.com |
+| **Build** | Local Grok Build agent, including the terminal pane |
+| **Grokipedia** | grokipedia.com |
+| **𝕏** | x.com |
+| **Console** | console.x.ai, from Build |
+| **Grok Bot** | The separate Grok Bot app, beside the mode switcher |
 
-### 📊 Cost & Usage Tracking
-Stay on top of your API usage:
-- **Real-time token counting** — Input and output tokens
-- **Cost estimation** — Based on current xAI pricing
-- **Context window indicator** — Know when you're approaching limits
-- **Per-model pricing** — Automatically calculated
+### 🤖 Grok Bot
+- The mode bar, the menu bar extra, and the command palette can switch to Grok Bot.
+- The default hotkey is **⌃⌥G**. Settings also offers **⌃⌥B** and **⌥⇧G**.
+- If Grok Bot is already the frontmost app, the hotkey comes back to Grok.
+- If Grok Bot is not in `/Applications` or `~/Applications`, Settings has a path field and a Choose… button.
 
-### 🎨 Native macOS Experience
-Built for Mac, not ported:
-- **Native SwiftUI interface** — Feels right at home on macOS
-- **Dark/Light mode** — Follows system appearance
-- **Menu bar icon** — Quick access without opening the full app
-- **Auto-updates** — Sparkle framework keeps you current
-- **Keyboard shortcuts** — Full macOS keyboard navigation
+### 🖥️ Build terminal
+Build includes a live shell powered by SwiftTerm:
+- **⌘`** opens the Build terminal.
+- The pane has tabs, a split of the active tab, a font size, and a light or dark theme.
+- The Finder service **Open in Terminal pane** opens a chosen folder there.
+- **Send selection to Grok** sends the selected terminal text into a new grok.com chat.
+- **Grok in terminal** types `grok` into that shell when the `grok` CLI is on your PATH. If it is not, the pane shows install help and does not install anything.
 
-### 🔄 Multiple Modes
-Switch between different interfaces:
+Ghostty is not included. SwiftTerm remains the terminal.
 
-| Mode | Description |
-|------|-------------|
-| **💬 Chat** | Grok web interface (grok.x.ai) |
-| **👨‍💻 Code** | Developer-focused API chat with code highlighting |
-| **📚 Grokipedia** | Knowledge base and research mode |
-| **𝕏 Twitter** | Integrated X/Twitter access |
+### ⌨ Command palette, cheat sheet, and Settings
+- **⌘⇧K** opens a palette of actions, modes, and settings. Return runs the highlighted row. A setting row opens Settings.
+- **⌘/** opens the keyboard shortcut cheat sheet.
+- Settings search hides rows that do not match.
+- Settings rows and the mode switcher have accessibility labels.
+- The Grok Build API key stays in the macOS Keychain. Sparkle is linked, and this build does not start the updater.
 
 ---
 
@@ -131,9 +133,8 @@ See [Build from Source](#-build-from-source) below.
 
 ### 3. Start Chatting
 
-- Use the **Code** mode for the developer chat interface
-- Or use **Chat** mode for the web-based Grok experience
-- Try the global hotkey (⌘⇧G) to summon Grok from anywhere!
+- Use **Grok** for grok.com, and **Build** for the local coding agent
+- Press **Option-Space** for Quick Ask from any app
 
 ---
 
@@ -141,17 +142,27 @@ See [Build from Source](#-build-from-source) below.
 
 | Action | Shortcut |
 |--------|----------|
-| **Global Hotkey** | ⌘⇧G (customizable) |
-| **Settings** | ⌘, |
+| **Quick Ask** | ⌥Space (customizable) |
+| **Screenshot to Grok** | ⌃⌥4 |
+| **Grok Bot** | ⌃⌥G (customizable) |
+| **New Tab** | ⌘T |
+| **Close Tab / Hide Window** | ⌘W |
+| **Switch Tab** | ⌘1–9 |
+| **Prompt Library** | ⌘⇧P |
+| **Find in Page** | ⌘F |
+| **Focus Mode** | ⌘⇧F |
+| **Full Screen** | ⌘⌃F |
+| **Zoom In / Out / Actual Size** | ⌘= / ⌘- / ⌘0 |
+| **Command Palette** | ⌘⇧K |
+| **Build Terminal** | ⌘` |
+| **Keyboard Shortcuts** | ⌘/ |
 | **New Chat** | ⌘N |
-| **Close Window** | ⌘W |
+| **Quick Query** | ⌘Space |
+| **Settings** | ⌘, |
 | **Minimize** | ⌘M |
 | **Quit** | ⌘Q |
-| **Copy** | ⌘C |
-| **Paste** | ⌘V |
-| **Select All** | ⌘A |
-| **Back** | ⌘[ |
-| **Forward** | ⌘] |
+| **Copy / Paste / Select All** | ⌘C / ⌘V / ⌘A |
+| **Back / Forward** | ⌘[ / ⌘] |
 | **Reload** | ⌘R |
 
 ---
