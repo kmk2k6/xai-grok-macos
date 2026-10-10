@@ -150,6 +150,28 @@ class SettingsWindow: NSWindow {
         paceToggle.state = UserDefaults.standard.bool(forKey: GrokUsageBadge.paceWarningEnabledKey) ? .on : .off
         paceToggle.toolTip = "Sends one notification per week when usage runs ahead of an even weekly pace. Off by default."
         stack.addArrangedSubview(paceToggle)
+
+        let quietToggle = NSButton(
+            checkboxWithTitle: "Quiet hours for usage alerts",
+            target: self,
+            action: #selector(toggleQuietHours(_:))
+        )
+        quietToggle.state = UserDefaults.standard.bool(forKey: GrokUsageBadge.quietHoursEnabledKey) ? .on : .off
+        quietToggle.toolTip = "Holds usage alerts during these hours, and while macOS Focus is on."
+        stack.addArrangedSubview(quietToggle)
+
+        let quietRow = NSStackView()
+        quietRow.orientation = .horizontal
+        quietRow.spacing = 8
+        quietRow.addArrangedSubview(NSTextField(labelWithString: "From"))
+        let startPopup = hourPopup(selected: UserDefaults.standard.object(forKey: GrokUsageBadge.quietHoursStartKey) as? Int ?? 22, action: #selector(quietStartChanged(_:)))
+        startPopup.setAccessibilityLabel("Quiet hours start")
+        quietRow.addArrangedSubview(startPopup)
+        quietRow.addArrangedSubview(NSTextField(labelWithString: "to"))
+        let endPopup = hourPopup(selected: UserDefaults.standard.object(forKey: GrokUsageBadge.quietHoursEndKey) as? Int ?? 7, action: #selector(quietEndChanged(_:)))
+        endPopup.setAccessibilityLabel("Quiet hours end")
+        quietRow.addArrangedSubview(endPopup)
+        stack.addArrangedSubview(quietRow)
         
         stack.addArrangedSubview(createSeparator())
         
@@ -345,6 +367,33 @@ class SettingsWindow: NSWindow {
 
     @objc func togglePaceWarning(_ sender: NSButton) {
         UserDefaults.standard.set(sender.state == .on, forKey: GrokUsageBadge.paceWarningEnabledKey)
+    }
+
+    private func hourPopup(selected: Int, action: Selector) -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for hour in 0..<24 {
+            popup.addItem(withTitle: String(format: "%02d:00", hour))
+            popup.lastItem?.tag = hour
+        }
+        popup.selectItem(withTag: selected)
+        popup.target = self
+        popup.action = action
+        return popup
+    }
+
+    @objc func toggleQuietHours(_ sender: NSButton) {
+        UserDefaults.standard.set(sender.state == .on, forKey: GrokUsageBadge.quietHoursEnabledKey)
+        if sender.state == .on {
+            GrokUsageBadge.prepareFocusStatus()
+        }
+    }
+
+    @objc func quietStartChanged(_ sender: NSPopUpButton) {
+        UserDefaults.standard.set(sender.selectedTag(), forKey: GrokUsageBadge.quietHoursStartKey)
+    }
+
+    @objc func quietEndChanged(_ sender: NSPopUpButton) {
+        UserDefaults.standard.set(sender.selectedTag(), forKey: GrokUsageBadge.quietHoursEndKey)
     }
 
     @objc func screenshotHotkeyChanged(_ sender: NSPopUpButton) {

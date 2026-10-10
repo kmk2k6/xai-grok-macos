@@ -13,6 +13,7 @@ import Foundation
 import WebKit
 import SwiftUI
 import AppKit
+import Intents
 import UserNotifications
 
 extension Notification.Name {
@@ -27,6 +28,9 @@ enum GrokUsageBadge {
     static let updatedAtStorageKey = "grok.usageBadge.updatedAt"
     static let notificationsEnabledKey = "grok.usageNotificationsEnabled"
     static let paceWarningEnabledKey = "grok.usagePaceWarningEnabled"
+    static let quietHoursEnabledKey = "grok.quietHours.enabled"
+    static let quietHoursStartKey = "grok.quietHours.start"
+    static let quietHoursEndKey = "grok.quietHours.end"
     private static let notified80Key = "grok.usageBadge.notified80"
     private static let notified95Key = "grok.usageBadge.notified95"
     private static let lastNotifiedPercentKey = "grok.usageBadge.lastPercent"
@@ -152,7 +156,28 @@ enum GrokUsageBadge {
         return String(Int(start))
     }
 
+    /// True when Focus is on, or the clock is inside the optional quiet-hours window.
+    static func notificationsAreSuppressed(at date: Date = Date()) -> Bool {
+        if #available(macOS 12.0, *) {
+            if INFocusStatusCenter.default.focusStatus.isFocused == true { return true }
+        }
+        guard UserDefaults.standard.bool(forKey: quietHoursEnabledKey) else { return false }
+        let start = UserDefaults.standard.object(forKey: quietHoursStartKey) as? Int ?? 22
+        let end = UserDefaults.standard.object(forKey: quietHoursEndKey) as? Int ?? 7
+        let hour = Calendar.current.component(.hour, from: date)
+        if start == end { return false }
+        if start < end { return hour >= start && hour < end }
+        return hour >= start || hour < end
+    }
+
+    static func prepareFocusStatus() {
+        if #available(macOS 12.0, *) {
+            INFocusStatusCenter.default.requestAuthorization { _ in }
+        }
+    }
+
     private static func postUsageNotification(title: String, body: String) {
+        if notificationsAreSuppressed() { return }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }

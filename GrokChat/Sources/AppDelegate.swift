@@ -132,6 +132,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeyManager.shared.delegate = self
         HotKeyManager.shared.setup()
         GrokAskService.shared.start()
+        GrokUsageBadge.prepareFocusStatus()
         
         // Create the main window
         window = NSWindow(
