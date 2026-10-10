@@ -131,6 +131,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var pipWindow: NSWindow?
     var pipWebView: WKWebView?
     var shortcutWindow: NSWindow?
+    var commandPalette: CommandPalettePanel?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
     
@@ -721,6 +722,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         promptItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(promptItem)
+        let commandItem = NSMenuItem(
+            title: "Command Palette",
+            action: #selector(showCommandPalette(_:)),
+            keyEquivalent: "k"
+        )
+        commandItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(commandItem)
         fileMenu.addItem(withTitle: "Open Project Folder…", action: #selector(openProjectFolder(_:)), keyEquivalent: "o")
         let jumpItem = NSMenuItem(
             title: "Jump to Session…",
@@ -890,6 +898,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Command-Shift-F       Focus mode
             Command-Control-F     Full screen
             Command-= / - / 0     Zoom in, out, actual size
+            Command-Shift-K       Command palette
             Command-`             Build terminal
             Command-/             This cheat sheet
             Command-N             New chat in the current tab
@@ -1936,7 +1945,7 @@ extension AppDelegate: HotKeyDelegate {
     }
 
     /// `screencapture -i` writes a region to a temp file, then attaches it to a new grok.com chat.
-    private func captureScreenRegion() {
+    func captureScreenRegion() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("GrokShot-\(UUID().uuidString).png")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
@@ -2341,6 +2350,13 @@ extension AppDelegate: WKNavigationDelegate {
         let literal = (try? String(data: JSONEncoder().encode(trimmed), encoding: .utf8)) ?? "\"\""
         let js = "window.find(\(literal), false, \(backwards ? "true" : "false"), true, false, false, false)"
         activeWebView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    @objc func showCommandPalette(_ sender: Any?) {
+        if commandPalette == nil {
+            commandPalette = CommandPalettePanel()
+        }
+        commandPalette?.showFresh()
     }
 
     @objc func showPromptLibrary(_ sender: Any?) {
