@@ -143,12 +143,55 @@ final class QuickAskPanel: NSPanel {
 enum QuickAskController {
     private static var panel: QuickAskPanel?
 
+    static let prefillFromSelectionKey = "quickAsk.prefillFromSelection"
+
+    static var prefillFromSelection: Bool {
+        UserDefaults.standard.bool(forKey: prefillFromSelectionKey)
+    }
+
     static func toggle(prefill: String? = nil) {
         if let panel, panel.isVisible, prefill == nil {
             close()
+        } else if prefill == nil {
+            captureSelectionThenShow()
         } else {
             show(prefill: prefill)
         }
+    }
+
+    /// Copies the frontmost app's selection only when the user turned the setting on.
+    private static func captureSelectionThenShow() {
+        guard prefillFromSelection else {
+            show(prefill: nil)
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        let before = pasteboard.changeCount
+        let previous = pasteboard.string(forType: .string)
+        postCopyShortcut()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            let changed = pasteboard.changeCount != before
+            let selected = changed ? pasteboard.string(forType: .string) : nil
+            if changed {
+                pasteboard.clearContents()
+                if let previous {
+                    pasteboard.setString(previous, forType: .string)
+                }
+            }
+            let trimmed = selected?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefill = (trimmed?.isEmpty == false) ? trimmed : nil
+            show(prefill: prefill)
+        }
+    }
+
+    private static func postCopyShortcut() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true)
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false)
+        keyDown?.flags = .maskCommand
+        keyUp?.flags = .maskCommand
+        keyDown?.post(tap: .cghidEventTap)
+        keyUp?.post(tap: .cghidEventTap)
     }
 
     static func show(prefill: String? = nil) {

@@ -108,6 +108,15 @@ class SettingsWindow: NSWindow {
         hotkeyDropdown.target = self
         hotkeyDropdown.action = #selector(hotkeyChanged(_:))
         stack.addArrangedSubview(hotkeyDropdown)
+
+        let selectionToggle = NSButton(
+            checkboxWithTitle: "Prefill Quick Ask from the selected text",
+            target: self,
+            action: #selector(toggleQuickAskSelection(_:))
+        )
+        selectionToggle.state = UserDefaults.standard.bool(forKey: QuickAskController.prefillFromSelectionKey) ? .on : .off
+        selectionToggle.toolTip = "When on, Quick Ask sends Command-C to the frontmost app and prefills that selection. Off by default. Accessibility permission is required."
+        stack.addArrangedSubview(selectionToggle)
         
         stack.addArrangedSubview(createSeparator())
         
@@ -286,6 +295,16 @@ class SettingsWindow: NSWindow {
         UpdateManager.shared.configureAutomaticUpdates(enabled: sender.state == .on)
     }
     
+    @objc func toggleQuickAskSelection(_ sender: NSButton) {
+        let enabled = sender.state == .on
+        UserDefaults.standard.set(enabled, forKey: QuickAskController.prefillFromSelectionKey)
+        if enabled {
+            let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+            let options = [key: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+    }
+
     @objc func hotkeyChanged(_ sender: NSPopUpButton) {
         if let preset = HotKeyManager.ShortcutPreset(rawValue: sender.indexOfSelectedItem) {
             HotKeyManager.shared.setPreset(preset)
