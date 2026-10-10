@@ -19,6 +19,10 @@ class SettingsWindow: NSWindow {
     private var apiKeyField: NSSecureTextField!
     private var safetyCheckbox: NSButton!
     private var retentionPopup: NSPopUpButton!
+    private var settingsTabView: NSTabView?
+    private var generalRows: NSStackView?
+    private var grokRows: NSStackView?
+    private var appearanceHost: NSView?
     
     init() {
         super.init(
@@ -35,7 +39,18 @@ class SettingsWindow: NSWindow {
     }
     
     private func setupUI() {
-        let tabView = NSTabView(frame: NSRect(x: 0, y: 0, width: 520, height: 480))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 480))
+        root.autoresizingMask = [.width, .height]
+        let search = NSSearchField(frame: NSRect(x: 16, y: 444, width: 488, height: 28))
+        search.placeholderString = "Search settings"
+        search.setAccessibilityLabel("Search settings")
+        search.sendsSearchStringImmediately = true
+        search.sendsWholeSearchString = true
+        search.delegate = self
+        search.autoresizingMask = [.width, .minYMargin]
+        root.addSubview(search)
+
+        let tabView = NSTabView(frame: NSRect(x: 0, y: 0, width: 520, height: 436))
         tabView.autoresizingMask = [.width, .height]
         
         let generalItem = NSTabViewItem(identifier: "general")
@@ -53,14 +68,17 @@ class SettingsWindow: NSWindow {
         tabView.addTabViewItem(generalItem)
         tabView.addTabViewItem(appearanceItem)
         tabView.addTabViewItem(grokItem)
+        settingsTabView = tabView
+        root.addSubview(tabView)
         
-        self.contentView = tabView
+        self.contentView = root
     }
 
     private func createAppearanceView() -> NSView {
         let hosting = NSHostingView(rootView: GlassAppearanceSettingsView(settingsManager: .shared))
         hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 480)
         hosting.autoresizingMask = [.width, .height]
+        appearanceHost = hosting
         return hosting
     }
     
@@ -188,6 +206,7 @@ class SettingsWindow: NSWindow {
         let updateButton = NSButton(title: "Check for Updates...", target: self, action: #selector(checkForUpdates(_:)))
         updateButton.bezelStyle = .rounded
         stack.addArrangedSubview(updateButton)
+        generalRows = stack
         
         return container
     }
@@ -272,6 +291,7 @@ class SettingsWindow: NSWindow {
         let clearButton = NSButton(title: "Clear All History", target: self, action: #selector(clearHistory(_:)))
         clearButton.bezelStyle = .rounded
         stack.addArrangedSubview(clearButton)
+        grokRows = stack
         
         return container
     }
@@ -410,5 +430,56 @@ class SettingsWindow: NSWindow {
     
     @objc func checkForUpdates(_ sender: Any?) {
         UpdateManager.shared.checkForUpdates(sender)
+    }
+
+    fileprivate func applySettingsFilter(_ raw: String) {
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        filterRows(generalRows, query: query)
+        filterRows(grokRows, query: query)
+        let appearanceText = "appearance glass opacity tint font border chrome"
+        let appearanceMatches = query.isEmpty || appearanceText.contains(query)
+        appearanceHost?.isHidden = !appearanceMatches
+        guard !query.isEmpty, let tabView = settingsTabView else { return }
+        if stackHasVisibleRow(generalRows) {
+            tabView.selectTabViewItem(at: 0)
+        } else if appearanceMatches {
+            tabView.selectTabViewItem(at: 1)
+        } else if stackHasVisibleRow(grokRows) {
+            tabView.selectTabViewItem(at: 2)
+        }
+    }
+
+    private func filterRows(_ stack: NSStackView?, query: String) {
+        guard let stack else { return }
+        for view in stack.arrangedSubviews {
+            if query.isEmpty {
+                view.isHidden = false
+            } else {
+                view.isHidden = !searchableText(in: view).contains(query)
+            }
+        }
+    }
+
+    private func stackHasVisibleRow(_ stack: NSStackView?) -> Bool {
+        stack?.arrangedSubviews.contains { !$0.isHidden } ?? false
+    }
+
+    private func searchableText(in view: NSView) -> String {
+        var parts: [String] = []
+        if let button = view as? NSButton { parts.append(button.title) }
+        if let field = view as? NSTextField { parts.append(field.stringValue) }
+        if let popup = view as? NSPopUpButton { parts.append(popup.itemTitles.joined(separator: " ")) }
+        if let label = view as? NSTextField { parts.append(label.placeholderString ?? "") }
+        for child in view.subviews {
+            parts.append(searchableText(in: child))
+        }
+        return parts.joined(separator: " ").lowercased()
+    }
+}
+
+extension SettingsWindow: NSSearchFieldDelegate {
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSSearchField else { return }
+        applySettingsFilter(field.stringValue)
     }
 }
