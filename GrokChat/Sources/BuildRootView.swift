@@ -1468,6 +1468,7 @@ private struct BuildShellTerminalPane: View {
     @State private var activeID: UUID?
     @State private var split = false
     @State private var splitID = UUID()
+    @State private var grokHelp: String?
     @AppStorage(GrokTerminalTheme.fontSizeKey) private var fontSize: Double = 13
     @AppStorage(GrokTerminalTheme.themeKey) private var theme: String = "dark"
 
@@ -1535,6 +1536,7 @@ private struct BuildShellTerminalPane: View {
         }
     }
 
+    @ViewBuilder
     private var tabBar: some View {
         HStack(spacing: 6) {
             ForEach(tabs) { tab in
@@ -1589,9 +1591,21 @@ private struct BuildShellTerminalPane: View {
                 .buttonStyle(.borderless)
                 .font(.system(size: 11))
                 .accessibilityLabel("Send selection to Grok")
+            Button("Grok in terminal", action: startGrokInTerminal)
+                .buttonStyle(.borderless)
+                .font(.system(size: 11, weight: .semibold))
+                .accessibilityLabel("Grok in terminal")
         }
         .padding(.horizontal, 10)
-        .frame(height: 34)
+        .frame(minHeight: 34)
+        if let grokHelp {
+            Text(grokHelp)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
+        }
     }
 
     private func terminal(_ tab: ShellTab, session: UUID) -> some View {
@@ -1626,6 +1640,16 @@ private struct BuildShellTerminalPane: View {
               WorkspaceStore.directoryExists(at: path) else { return }
         UserDefaults.standard.removeObject(forKey: GrokTerminalTheme.pendingPathKey)
         addTab(path: path)
+    }
+
+    private func startGrokInTerminal() {
+        guard let activeID else { return }
+        guard GrokCLIResolver.isAvailable else {
+            grokHelp = "grok is not on PATH. Install the Grok CLI yourself, then press Grok in terminal again. This app will not install it for you."
+            return
+        }
+        grokHelp = nil
+        _ = GrokGhosttyTerminalNSView.send(to: activeID, text: "grok\n")
     }
 
     private func sendSelectionToGrok() {
