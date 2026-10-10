@@ -22,19 +22,20 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Grok needs to control Terminal to install the Grok Build CLI and run grok login for you.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>Grok holds usage alerts while a Focus is on.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2025 Brandon Charleson. All rights reserved.</string>
-	<!-- Sparkle stays in the project, but this fork does not check or update. -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
 	<key>SUFeedURL</key>
 	<string></string>
 	<key>SUPublicEDKey</key>
 	<string></string>
-	<key>SUEnableAutomaticChecks</key>
-	<false/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>
