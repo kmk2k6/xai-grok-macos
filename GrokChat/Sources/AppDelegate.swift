@@ -103,6 +103,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var pendingAttachmentFallback: String?
     var settingsWindow: SettingsWindow?
     var promptLibraryPanel: PromptLibraryPanel?
+    var findBar: GrokFindBar?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
     
@@ -424,6 +425,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chromeTintView.frame = chromeEffectView.frame
         chromeBorderView.frame = NSRect(x: 0, y: y, width: width, height: 1)
         layoutChatTabs()
+        layoutFindBar()
         content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
         content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
         content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
@@ -667,6 +669,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Find…", action: #selector(showFind(_:)), keyEquivalent: "f")
         
         // View Menu
         let viewMenuItem = NSMenuItem()
@@ -1065,8 +1069,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .grokipedia: return grokipediaWebView
         case .xTwitter: return xWebView
         case .chatX: return chatXWebView
+        case .console: return consoleWebView
         default: return webView
         }
+    }
+
+    private var zoomStorageKey: String { "grok.pageZoom.\(currentMode)" }
+
+    private func persistZoom() {
+        guard currentMode != .developer else { return }
+        UserDefaults.standard.set(activeWebView.pageZoom, forKey: zoomStorageKey)
+    }
+
+    private func applyStoredZoom() {
+        guard currentMode != .developer else { return }
+        let stored = UserDefaults.standard.double(forKey: zoomStorageKey)
+        guard stored >= 0.5, stored <= 3 else { return }
+        activeWebView.pageZoom = stored
     }
     
     @objc func goBack(_ sender: Any?) { activeWebView.goBack() }
@@ -1195,17 +1214,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func zoomIn(_ sender: Any?) {
-        activeWebView.pageZoom += 0.1
+        guard currentMode != .developer else { return }
+        activeWebView.pageZoom = min(3, activeWebView.pageZoom + 0.1)
+        persistZoom()
         showZoomOverlay()
     }
     
     @objc func zoomOut(_ sender: Any?) {
-        activeWebView.pageZoom -= 0.1
+        guard currentMode != .developer else { return }
+        activeWebView.pageZoom = max(0.5, activeWebView.pageZoom - 0.1)
+        persistZoom()
         showZoomOverlay()
     }
     
     @objc func resetZoom(_ sender: Any?) {
+        guard currentMode != .developer else { return }
         activeWebView.pageZoom = 1.0
+        persistZoom()
         showZoomOverlay()
     }
 
@@ -1304,6 +1329,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeFirstResponder(chatXWebView)
         }
         updateWindowChrome(for: mode)
+        applyStoredZoom()
     }
 
     private func updateWindowChrome(for mode: AppMode) {
@@ -2014,6 +2040,44 @@ extension AppDelegate: WKNavigationDelegate {
 
     @objc func exportChat(_ sender: Any?) {
         ChatExporter.export(from: activeWebView, window: window)
+    }
+
+    @objc func showFind(_ sender: Any?) {
+        guard currentMode != .developer, let content = mainContainerView else { return }
+        if findBar == nil {
+            let bar = GrokFindBar(frame: .zero)
+            bar.onFind = { [weak self] query, backwards in
+                self?.findInPage(query, backwards: backwards)
+            }
+            bar.onClose = { [weak self] in
+                self?.findBar?.removeFromSuperview()
+                self?.findBar?.isHidden = true
+            }
+            findBar = bar
+        }
+        guard let findBar else { return }
+        findBar.isHidden = false
+        layoutFindBar()
+        if findBar.superview !== content {
+            content.addSubview(findBar, positioned: .above, relativeTo: nil)
+        }
+        window.makeFirstResponder(findBar.field)
+    }
+
+    func layoutFindBar() {
+        guard let findBar, !findBar.isHidden, let content = mainContainerView else { return }
+        findBar.frame = NSRect(x: 0, y: 0, width: content.bounds.width, height: 40)
+        if findBar.superview !== content {
+            content.addSubview(findBar, positioned: .above, relativeTo: nil)
+        }
+    }
+
+    private func findInPage(_ query: String, backwards: Bool) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let literal = (try? String(data: JSONEncoder().encode(trimmed), encoding: .utf8)) ?? "\"\""
+        let js = "window.find(\(literal), false, \(backwards ? "true" : "false"), true, false, false, false)"
+        activeWebView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     @objc func showPromptLibrary(_ sender: Any?) {
