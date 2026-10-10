@@ -102,6 +102,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var pendingAttachments: [GrokAttachment] = []
     var pendingAttachmentFallback: String?
     var settingsWindow: SettingsWindow?
+    var promptLibraryPanel: PromptLibraryPanel?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
     
@@ -620,6 +621,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenuItem.submenu = fileMenu
         fileMenu.addItem(withTitle: "New Chat", action: #selector(newChat(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newChatTab(_:)), keyEquivalent: "t")
+        let promptItem = NSMenuItem(
+            title: "Prompt Library",
+            action: #selector(showPromptLibrary(_:)),
+            keyEquivalent: "p"
+        )
+        promptItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(promptItem)
         fileMenu.addItem(withTitle: "Open Project Folder…", action: #selector(openProjectFolder(_:)), keyEquivalent: "o")
         let jumpItem = NSMenuItem(
             title: "Jump to Session…",
@@ -2001,6 +2009,14 @@ extension AppDelegate: WKNavigationDelegate {
 
     @objc func showQuickAsk(_ sender: Any?) {
         QuickAskController.toggle()
+    }
+
+    @objc func showPromptLibrary(_ sender: Any?) {
+        if promptLibraryPanel == nil {
+            promptLibraryPanel = PromptLibraryPanel()
+        }
+        promptLibraryPanel?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func deliverPendingQuickAskIfNeeded(in webView: WKWebView) {

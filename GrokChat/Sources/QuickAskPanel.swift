@@ -59,6 +59,39 @@ enum GrokChatInjector {
         }
     }
 
+    /// Puts text in the composer and leaves it there for the user to edit.
+    static func fill(_ prompt: String, into webView: WKWebView, attempt: Int = 0) {
+        let literal = jsonStringLiteral(prompt)
+        let js = """
+        (function() {
+            var text = \(literal);
+            var input = document.querySelector('textarea') ||
+                        document.querySelector('[contenteditable="true"]') ||
+                        document.querySelector('input[type="text"]');
+            if (!input) { return false; }
+            input.focus();
+            if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+                var proto = input.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                setter.call(input, text);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                input.textContent = text;
+                input.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
+            }
+            return true;
+        })();
+        """
+        webView.evaluateJavaScript(js) { result, _ in
+            let placed = (result as? Bool) ?? false
+            if !placed && attempt < 10 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    fill(prompt, into: webView, attempt: attempt + 1)
+                }
+            }
+        }
+    }
+
     /// Puts files on the page upload control, or drops them on the composer. Returns whether an input or drop target existed.
     static func attach(_ files: [GrokAttachment], into webView: WKWebView, attempt: Int = 0, completion: @escaping (Bool) -> Void) {
         guard !files.isEmpty else {
