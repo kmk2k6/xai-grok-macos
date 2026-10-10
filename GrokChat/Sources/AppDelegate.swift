@@ -94,6 +94,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastEmptyBodyReloadDate: Date = .distantPast
     
     var inputWindow: InputWindow?
+    /// Prompt waiting to be typed into a fresh grok.com chat after navigation.
+    var pendingQuickAsk: String?
     var settingsWindow: SettingsWindow?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
@@ -521,6 +523,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         sendToBuildItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(sendToBuildItem)
+        fileMenu.addItem(withTitle: "Quick Ask", action: #selector(showQuickAsk(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Quick Query", action: #selector(toggleInputWindow(_:)), keyEquivalent: " ") // Option+Space is handled by HotKeyManager, this is a menu item backup
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(performClose(_:)), keyEquivalent: "w")
@@ -1588,7 +1591,7 @@ extension AppDelegate: WKScriptMessageHandler {
 // MARK: - HotKeyDelegate
 extension AppDelegate: HotKeyDelegate {
     func hotKeyTriggered() {
-        toggleInputWindow(nil)
+        QuickAskController.toggle()
     }
 }
 
@@ -1806,7 +1809,33 @@ extension AppDelegate: WKNavigationDelegate {
         injectGrokBuildNativeHookIfNeeded(in: webView)
         if webView === self.webView {
             GrokUsageBadge.injectIfNeeded(into: webView)
+            deliverPendingQuickAskIfNeeded(in: webView)
         }
+    }
+
+    /// Loads grok.com as a new chat, then types the prompt once the page finishes.
+    func submitQuickAsk(_ prompt: String) {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        QuickAskController.close()
+        pendingQuickAsk = trimmed
+        showMainWindow(nil)
+        updateMode(to: .chat)
+        if let url = URL(string: "https://grok.com") {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    @objc func showQuickAsk(_ sender: Any?) {
+        QuickAskController.toggle()
+    }
+
+    private func deliverPendingQuickAskIfNeeded(in webView: WKWebView) {
+        guard let prompt = pendingQuickAsk else { return }
+        guard let host = webView.url?.host?.lowercased(),
+              host == "grok.com" || host.hasSuffix(".grok.com") else { return }
+        pendingQuickAsk = nil
+        GrokChatInjector.inject(prompt, into: webView)
     }
 
     private func injectGrokBuildNativeHookIfNeeded(in webView: WKWebView) {

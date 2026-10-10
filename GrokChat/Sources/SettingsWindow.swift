@@ -93,7 +93,7 @@ class SettingsWindow: NSWindow {
         stack.addArrangedSubview(createSeparator())
         
         // Global Shortcut
-        let shortcutsLabel = NSTextField(labelWithString: "Global Shortcut")
+        let shortcutsLabel = NSTextField(labelWithString: "Quick Ask Shortcut")
         shortcutsLabel.font = .systemFont(ofSize: 13, weight: .bold)
         stack.addArrangedSubview(shortcutsLabel)
         
