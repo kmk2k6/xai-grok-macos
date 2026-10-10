@@ -384,13 +384,15 @@ enum GrokUsageBadge {
 
       function usagePercentFromText(text) {
         if (!text || !/\\busage\\b/i.test(text)) return null;
+        // grok.com puts each digit in its own node, so the dialog text is "2\\n1%" for 21%.
+        var normalized = String(text).replace(/(\\d)\\s+(?=[\\d.])/g, "$1").replace(/(\\.)\\s+(?=\\d)/g, "$1");
         var found = [];
-        var re = /(\\d{1,3})\\s*%/g;
+        var re = /(\\d{1,3}(?:\\.\\d+)?)\\s*%/g;
         var match;
-        while ((match = re.exec(text)) !== null) {
-          var value = parseInt(match[1], 10);
+        while ((match = re.exec(normalized)) !== null) {
+          var value = Math.round(parseFloat(match[1]));
           if (value < 0 || value > 100) continue;
-          var nearby = text.slice(Math.max(0, match.index - 90), Math.min(text.length, match.index + match[0].length + 90));
+          var nearby = normalized.slice(Math.max(0, match.index - 90), Math.min(normalized.length, match.index + match[0].length + 90));
           var priority = /\\b(total|overall|combined|weekly)\\b/i.test(nearby) ? 4 : (/%\\s*used|\\bused\\b/i.test(nearby) ? 3 : 1);
           found.push({ value: value, priority: priority, index: match.index });
         }
@@ -399,14 +401,16 @@ enum GrokUsageBadge {
         for (var i = 0; i < found.length; i++) {
           if (unique.indexOf(found[i].value) < 0) unique.push(found[i].value);
         }
-        if (unique.length >= 3) {
+        if (unique.length >= 2) {
+          var composed = null;
           for (var a = 0; a < unique.length; a++) {
             var rest = 0;
             for (var b = 0; b < unique.length; b++) if (b !== a) rest += unique[b];
-            if (Math.abs(rest - unique[a]) <= 2) return unique[a];
+            if (Math.abs(rest - unique[a]) <= 2 && (composed == null || unique[a] > composed)) composed = unique[a];
           }
+          if (composed != null) return composed;
         }
-        found.sort(function(a, b) { return (b.priority - a.priority) || (a.index - b.index); });
+        found.sort(function(a, b) { return (b.priority - a.priority) || (b.value - a.value) || (a.index - b.index); });
         return found[0].value;
       }
 
@@ -449,6 +453,8 @@ enum GrokUsageBadge {
                 if (lowerPath.indexOf("ratelimit") !== -1 || lowerPath.indexOf("rate_limit") !== -1 || lowerPath.indexOf("rate-limit") !== -1) score += 60;
                 if (lowerPath.indexOf("usage") !== -1 || lowerPath.indexOf("used") !== -1) score += 40;
                 if (lowerK.indexOf("percent") !== -1 || lowerK.indexOf("pct") !== -1) score += 50;
+                if (lowerK === "creditusagepercent") score += 400;
+                if (lowerPath.indexOf("productusage") !== -1) score -= 30;
 
                 var isIgnored = /id|timestamp|created|updated|expires|time|duration|seconds|millis|ms|version|code|status|port|year|month|day|hour|min/i.test(lowerK);
                 if (!isIgnored || lowerK.indexOf("percent") !== -1 || lowerK.indexOf("pct") !== -1) {
@@ -511,7 +517,7 @@ enum GrokUsageBadge {
         walk(obj, "", 0);
 
         if (candidates.length > 0) {
-          candidates.sort(function(a, b) { return b.score - a.score; });
+          candidates.sort(function(a, b) { return (b.score - a.score) || (b.val - a.val); });
           return candidates[0].val;
         }
         return null;
@@ -822,13 +828,15 @@ enum GrokUsageBadge {
 
           function usagePercentFromText(text) {
             if (!text || !/\\busage\\b/i.test(text)) return null;
+            // grok.com puts each digit in its own node, so the dialog text is "2\\n1%" for 21%.
+            var normalized = String(text).replace(/(\\d)\\s+(?=[\\d.])/g, "$1").replace(/(\\.)\\s+(?=\\d)/g, "$1");
             var found = [];
-            var re = /(\\d{1,3})\\s*%/g;
+            var re = /(\\d{1,3}(?:\\.\\d+)?)\\s*%/g;
             var match;
-            while ((match = re.exec(text)) !== null) {
-              var value = parseInt(match[1], 10);
+            while ((match = re.exec(normalized)) !== null) {
+              var value = Math.round(parseFloat(match[1]));
               if (value < 0 || value > 100) continue;
-              var nearby = text.slice(Math.max(0, match.index - 90), Math.min(text.length, match.index + match[0].length + 90));
+              var nearby = normalized.slice(Math.max(0, match.index - 90), Math.min(normalized.length, match.index + match[0].length + 90));
               var priority = /\\b(total|overall|combined|weekly)\\b/i.test(nearby) ? 4 : (/%\\s*used|\\bused\\b/i.test(nearby) ? 3 : 1);
               found.push({ value: value, priority: priority, index: match.index });
             }
@@ -837,14 +845,16 @@ enum GrokUsageBadge {
             for (var i = 0; i < found.length; i++) {
               if (unique.indexOf(found[i].value) < 0) unique.push(found[i].value);
             }
-            if (unique.length >= 3) {
+            if (unique.length >= 2) {
+              var composed = null;
               for (var a = 0; a < unique.length; a++) {
                 var rest = 0;
                 for (var b = 0; b < unique.length; b++) if (b !== a) rest += unique[b];
-                if (Math.abs(rest - unique[a]) <= 2) return unique[a];
+                if (Math.abs(rest - unique[a]) <= 2 && (composed == null || unique[a] > composed)) composed = unique[a];
               }
+              if (composed != null) return composed;
             }
-            found.sort(function(a, b) { return (b.priority - a.priority) || (a.index - b.index); });
+            found.sort(function(a, b) { return (b.priority - a.priority) || (b.value - a.value) || (a.index - b.index); });
             return found[0].value;
           }
 
