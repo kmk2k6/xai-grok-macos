@@ -312,6 +312,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Make the webview the first responder
         window.makeFirstResponder(webView)
+        applyStoredZoom()
         
         // Initialize Input Window (hidden by default)
         inputWindow = InputWindow()
