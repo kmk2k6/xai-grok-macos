@@ -80,6 +80,15 @@ class SettingsWindow: NSWindow {
         stack.addArrangedSubview(launchToggle)
         
         // Menu Bar Icon (default to ON if key doesn't exist)
+        let dockBadgeToggle = NSButton(
+            checkboxWithTitle: "Show usage percent on the Dock icon",
+            target: self,
+            action: #selector(toggleDockBadge(_:))
+        )
+        dockBadgeToggle.state = UserDefaults.standard.bool(forKey: "grok.dockBadge.enabled") ? .on : .off
+        dockBadgeToggle.toolTip = "Off by default. The Dock icon shows the latest usage percent."
+        stack.addArrangedSubview(dockBadgeToggle)
+
         let menuBarToggle = NSButton(checkboxWithTitle: "Show in Menu Bar", target: self, action: #selector(toggleMenuBarIcon(_:)))
         let showMenuBar = UserDefaults.standard.object(forKey: "showMenuBarIcon") == nil ? true : UserDefaults.standard.bool(forKey: "showMenuBarIcon")
         menuBarToggle.state = showMenuBar ? .on : .off
@@ -296,6 +305,11 @@ class SettingsWindow: NSWindow {
         }
     }
     
+    @objc func toggleDockBadge(_ sender: NSButton) {
+        UserDefaults.standard.set(sender.state == .on, forKey: "grok.dockBadge.enabled")
+        (NSApp.delegate as? AppDelegate)?.refreshDockBadge()
+    }
+
     @objc func toggleMenuBarIcon(_ sender: NSButton) {
         let isOn = sender.state == .on
         UserDefaults.standard.set(isOn, forKey: "showMenuBarIcon")
