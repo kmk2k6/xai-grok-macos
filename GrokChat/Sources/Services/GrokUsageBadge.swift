@@ -158,6 +158,7 @@ enum GrokUsageBadge {
             let updatedAt = updatedAtEpoch != nil ? Date(timeIntervalSince1970: updatedAtEpoch! / 1000.0) : nil
 
             if let percent {
+                UsagePaceStore.record(percent: percent)
                 checkAndNotifyUsageCrossing(percent: percent)
             }
 
@@ -171,6 +172,7 @@ enum GrokUsageBadge {
             if let percent = body["percent"] as? Int {
                 UserDefaults.standard.set(percent, forKey: percentStorageKey)
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: updatedAtStorageKey)
+                UsagePaceStore.record(percent: percent)
                 NotificationCenter.default.post(name: .grokUsagePercentDidChange, object: percent)
                 checkAndNotifyUsageCrossing(percent: percent)
             }
@@ -1114,12 +1116,114 @@ enum GrokUsageBadge {
     }
 }
 
+// MARK: - Weekly pace samples
+
+enum UsagePaceStore {
+    struct Sample: Codable, Equatable {
+        var t: TimeInterval
+        var percent: Int
+    }
+
+    static let samplesKey = "grok.usageBadge.samples"
+    private static let retention: TimeInterval = 14 * 24 * 60 * 60
+    private static let minGap: TimeInterval = 15 * 60
+
+    static func record(percent: Int, at date: Date = Date()) {
+        let now = date.timeIntervalSince1970
+        var samples = load().filter { now - $0.t <= retention }
+        if let last = samples.last, last.percent == percent, now - last.t < minGap {
+            return
+        }
+        samples.append(Sample(t: now, percent: percent))
+        if let data = try? JSONEncoder().encode(samples) {
+            UserDefaults.standard.set(data, forKey: samplesKey)
+        }
+    }
+
+    static func samples(now: Date = Date()) -> [Sample] {
+        let cutoff = now.timeIntervalSince1970 - retention
+        return load().filter { $0.t >= cutoff }.sorted { $0.t < $1.t }
+    }
+
+    /// Percent used if the weekly quota were spent evenly from the start of this calendar week.
+    static func expectedPercent(at date: Date = Date()) -> Double {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: date) else { return 0 }
+        let week = interval.duration
+        guard week > 0 else { return 0 }
+        let elapsed = min(max(0, date.timeIntervalSince(interval.start)), week)
+        return (elapsed / week) * 100
+    }
+
+    static func pointsAhead(percent: Int, at date: Date = Date()) -> Double {
+        Double(percent) - expectedPercent(at: date)
+    }
+
+    static func paceLabel(percent: Int, at date: Date = Date()) -> String {
+        pointsAhead(percent: percent, at: date) > 0.5 ? "ahead of pace" : "on pace"
+    }
+
+    private static func load() -> [Sample] {
+        guard let data = UserDefaults.standard.data(forKey: samplesKey),
+              let decoded = try? JSONDecoder().decode([Sample].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+}
+
+private struct UsageSparkline: View {
+    let samples: [UsagePaceStore.Sample]
+
+    var body: some View {
+        GeometryReader { geo in
+            let points = points(in: geo.size)
+            Path { path in
+                guard let first = points.first else { return }
+                path.move(to: first)
+                for point in points.dropFirst() {
+                    path.addLine(to: point)
+                }
+            }
+            .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+        .frame(height: 36)
+        .accessibilityLabel("Usage over the last 14 days")
+    }
+
+    private func points(in size: CGSize) -> [CGPoint] {
+        guard !samples.isEmpty else { return [] }
+        if samples.count == 1, let only = samples.first {
+            let y = yPosition(percent: only.percent, height: size.height)
+            return [CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y)]
+        }
+        let minT = samples[0].t
+        let maxT = samples[samples.count - 1].t
+        let span = max(maxT - minT, 1)
+        return samples.map { sample in
+            CGPoint(
+                x: CGFloat((sample.t - minT) / span) * size.width,
+                y: yPosition(percent: sample.percent, height: size.height)
+            )
+        }
+    }
+
+    private func yPosition(percent: Int, height: CGFloat) -> CGFloat {
+        let clamped = CGFloat(min(100, max(0, percent))) / 100
+        return height * (1 - clamped)
+    }
+}
+
 // MARK: - Native Popover View
 
 struct UsagePopoverView: View {
     let percent: Int?
     let updatedAt: Date?
     let onOpenFullUsage: () -> Void
+
+    private var paceSamples: [UsagePaceStore.Sample] {
+        UsagePaceStore.samples()
+    }
 
     private var statusColor: Color {
         guard let percent else { return .secondary }
@@ -1137,6 +1241,16 @@ struct UsagePopoverView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         return "Last updated " + formatter.localizedString(for: updatedAt, relativeTo: Date())
+    }
+
+    private func paceLine(for percent: Int) -> String {
+        let expected = Int(UsagePaceStore.expectedPercent().rounded())
+        return "\(UsagePaceStore.paceLabel(percent: percent)) · even pace \(expected)%"
+    }
+
+    private func paceAccessibility(for percent: Int) -> String {
+        let expected = Int(UsagePaceStore.expectedPercent().rounded())
+        return "\(UsagePaceStore.paceLabel(percent: percent)), even weekly pace \(expected) percent"
     }
 
     var body: some View {
@@ -1159,6 +1273,16 @@ struct UsagePopoverView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
+            }
+
+            UsageSparkline(samples: paceSamples)
+                .padding(.vertical, 2)
+
+            if let percent {
+                Text(paceLine(for: percent))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel(paceAccessibility(for: percent))
             }
 
             Divider()
