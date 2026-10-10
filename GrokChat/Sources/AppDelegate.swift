@@ -104,6 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsWindow: SettingsWindow?
     var promptLibraryPanel: PromptLibraryPanel?
     var findBar: GrokFindBar?
+    var zenMode = false
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
     
@@ -427,6 +428,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chromeBorderView.frame = NSRect(x: 0, y: y, width: width, height: 1)
         layoutChatTabs()
         layoutFindBar()
+        if zenMode && currentMode == .chat {
+            chromeEffectView.isHidden = true
+            chromeTintView.isHidden = true
+            chromeBorderView.isHidden = true
+            window.toolbar?.isVisible = false
+            chatTabStrip?.isHidden = true
+            webView.frame = content.bounds
+            return
+        }
         content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
         content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
         content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
@@ -684,7 +694,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "=") // Cmd+= is standard
         viewMenu.addItem(withTitle: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-")
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        let fullScreenItem = NSMenuItem(
+            title: "Enter Full Screen",
+            action: #selector(NSWindow.toggleFullScreen(_:)),
+            keyEquivalent: "f"
+        )
+        fullScreenItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(fullScreenItem)
+        let zenItem = NSMenuItem(
+            title: "Focus Mode",
+            action: #selector(toggleZen(_:)),
+            keyEquivalent: "f"
+        )
+        zenItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(zenItem)
         
         // History Menu
         let historyMenuItem = NSMenuItem()
@@ -2014,8 +2037,46 @@ extension AppDelegate: WKNavigationDelegate {
             noteChatTabTitle(for: webView)
             if webView === self.webView {
                 deliverPendingQuickAskIfNeeded(in: webView)
+                if zenMode { applyZenStyle(to: webView) }
             }
         }
+    }
+
+    @objc func toggleZen(_ sender: Any?) {
+        zenMode.toggle()
+        if zenMode && currentMode != .chat {
+            updateMode(to: .chat)
+        }
+        applyZenChrome()
+        applyZenStyle(to: webView)
+    }
+
+    private func applyZenChrome() {
+        if zenMode && currentMode == .chat {
+            layoutChromeStrip()
+        } else {
+            chatTabStrip?.isHidden = false
+            updateWindowChrome(for: currentMode)
+        }
+    }
+
+    private func applyZenStyle(to webView: WKWebView) {
+        let enabled = zenMode ? "true" : "false"
+        let js = """
+        (function() {
+            var on = \(enabled);
+            var id = 'grok-zen-style';
+            var existing = document.getElementById(id);
+            if (!on) { if (existing) existing.remove(); return; }
+            if (!existing) {
+                existing = document.createElement('style');
+                existing.id = id;
+                document.documentElement.appendChild(existing);
+            }
+            existing.textContent = 'nav,aside,[class*="sidebar" i],[data-testid*="sidebar" i]{display:none !important;} main{max-width:720px !important;margin-left:auto !important;margin-right:auto !important;}';
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     /// Loads grok.com as a new chat, then types the prompt once the page finishes.
