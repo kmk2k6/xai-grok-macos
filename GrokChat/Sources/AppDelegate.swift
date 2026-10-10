@@ -91,6 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppModeState.shared.currentMode = currentMode
         }
     }
+    private var lastEmptyBodyReloadDate: Date = .distantPast
     
     var inputWindow: InputWindow?
     var settingsWindow: SettingsWindow?
@@ -137,6 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.minSize = NSSize(width: 800, height: 600)
         window.isOpaque = true
         window.isReleasedWhenClosed = false // Keep window in memory when closed
+        window.delegate = self
         
         // Configure WebView
         let config = WKWebViewConfiguration()
@@ -1806,6 +1808,64 @@ extension AppDelegate: WKNavigationDelegate {
     private func injectGrokBuildNativeHookIfNeeded(in webView: WKWebView) {
         guard let host = webView.url?.host?.lowercased(), host.contains("grok.com") else { return }
         webView.evaluateJavaScript(WebToBuildBridge.grokBuildCTAScript, completionHandler: nil)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        #if DEBUG
+        print("[AppDelegate] Web content process terminated for webView: \(webView)")
+        #endif
+        reloadTerminatedWebView(webView)
+    }
+
+    private func reloadTerminatedWebView(_ webView: WKWebView) {
+        if let url = webView.url, !url.absoluteString.isEmpty, url.absoluteString != "about:blank" {
+            webView.load(URLRequest(url: url))
+        } else if let home = homeURL(for: webView) {
+            webView.load(URLRequest(url: home))
+        }
+    }
+
+    private func homeURL(for webView: WKWebView) -> URL? {
+        if webView === self.webView {
+            return URL(string: "https://grok.com")
+        } else if webView === self.consoleWebView {
+            return URL(string: "https://console.x.ai/home")
+        } else if webView === self.grokipediaWebView {
+            return URL(string: "https://grokipedia.com")
+        } else if webView === self.xWebView {
+            return URL(string: "https://x.com")
+        } else if webView === self.chatXWebView {
+            return URL(string: "https://chat.x.com")
+        }
+        return URL(string: "https://grok.com")
+    }
+
+    func checkAndRecoverEmptyBodyIfNeeded() {
+        guard currentMode == .chat else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastEmptyBodyReloadDate) >= 30 else { return }
+
+        webView.evaluateJavaScript("(!document.body || document.body.innerHTML.trim().length === 0 || document.body.children.length === 0)") { [weak self] result, error in
+            guard let self = self else { return }
+            if let isEmpty = result as? Bool, isEmpty {
+                self.lastEmptyBodyReloadDate = Date()
+                #if DEBUG
+                print("[AppDelegate] Empty document body detected on key window, reloading grok.com")
+                #endif
+                if let url = self.webView.url, !url.absoluteString.isEmpty, url.absoluteString != "about:blank" {
+                    self.webView.load(URLRequest(url: url))
+                } else if let home = URL(string: "https://grok.com") {
+                    self.webView.load(URLRequest(url: home))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - NSWindowDelegate
+extension AppDelegate: NSWindowDelegate {
+    func windowDidBecomeKey(_ notification: Notification) {
+        checkAndRecoverEmptyBodyIfNeeded()
     }
 }
 
