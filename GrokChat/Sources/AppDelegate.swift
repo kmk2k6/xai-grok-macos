@@ -437,30 +437,136 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func showStatusBar() {
         if statusItem != nil { return } // Already showing
         
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         if let button = statusItem.button {
-            if let iconImage = NSImage(named: "MenuBarIcon") {
-                let icon = iconImage.copy() as! NSImage
-                icon.isTemplate = true
-                button.image = icon
-                button.imageScaling = .scaleProportionallyDown
-            } else {
-                // Fallback: waveform.path looks similar to Grok's wavy logo
-                button.image = NSImage(systemSymbolName: "waveform.path", accessibilityDescription: "Grok")
-            }
+            let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Grok usage")
+            bolt?.isTemplate = true
+            button.image = bolt
+            button.imagePosition = .imageLeading
+            button.title = ""
+            button.setAccessibilityLabel("Grok usage")
         }
         
-        // Create menu
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open Grok", action: #selector(showMainWindow(_:)), keyEquivalent: "")
-        menu.addItem(withTitle: "Quick Query", action: #selector(toggleInputWindow(_:)), keyEquivalent: "")
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Quit Grok", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        
+        menu.delegate = self
         statusItem.menu = menu
+        refreshUsageStatusButton()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(usagePercentChanged(_:)),
+            name: .grokUsagePercentDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func usagePercentChanged(_ note: Notification) {
+        refreshUsageStatusButton()
+    }
+
+    func refreshUsageStatusButton() {
+        guard let button = statusItem?.button else { return }
+        if let percent = UserDefaults.standard.object(forKey: GrokUsageBadge.percentStorageKey) as? Int {
+            button.title = " \(percent)%"
+            button.setAccessibilityLabel("Grok usage \(percent) percent")
+        } else {
+            button.title = ""
+            button.setAccessibilityLabel("Grok usage")
+        }
+    }
+
+    private func rebuildStatusMenu(recent: [(title: String, href: String)]? = nil) {
+        guard let menu = statusItem?.menu else { return }
+        menu.removeAllItems()
+        if let percent = UserDefaults.standard.object(forKey: GrokUsageBadge.percentStorageKey) as? Int {
+            let usage = NSMenuItem(title: "Usage \(percent)%", action: nil, keyEquivalent: "")
+            usage.isEnabled = false
+            menu.addItem(usage)
+        } else {
+            let usage = NSMenuItem(title: "Usage unavailable", action: nil, keyEquivalent: "")
+            usage.isEnabled = false
+            menu.addItem(usage)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let header = NSMenuItem(title: "Recent chats", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        if let recent, !recent.isEmpty {
+            for chat in recent.prefix(8) {
+                let item = NSMenuItem(title: chat.title, action: #selector(openRecentChat(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = chat.href
+                menu.addItem(item)
+            }
+        } else if recent == nil {
+            let loading = NSMenuItem(title: "Loading…", action: nil, keyEquivalent: "")
+            loading.isEnabled = false
+            menu.addItem(loading)
+        } else {
+            let empty = NSMenuItem(title: "No recent chats", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let newChat = NSMenuItem(title: "New Chat", action: #selector(newChat(_:)), keyEquivalent: "")
+        newChat.target = self
+        menu.addItem(newChat)
+        let quickAsk = NSMenuItem(title: "Quick Ask", action: #selector(showQuickAsk(_:)), keyEquivalent: "")
+        quickAsk.target = self
+        menu.addItem(quickAsk)
+        menu.addItem(NSMenuItem.separator())
+        let settings = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        let quit = NSMenuItem(title: "Quit Grok", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.addItem(quit)
+    }
+
+    @objc func openRecentChat(_ sender: NSMenuItem) {
+        guard let href = sender.representedObject as? String, let url = URL(string: href) else { return }
+        showMainWindow(nil)
+        updateMode(to: .chat)
+        webView.load(URLRequest(url: url))
+    }
+
+    private func scrapeRecentChats() {
+        guard webView != nil else {
+            rebuildStatusMenu(recent: [])
+            return
+        }
+        let js = """
+        (function() {
+            var nodes = document.querySelectorAll('a[href]');
+            var seen = {};
+            var out = [];
+            for (var i = 0; i < nodes.length; i++) {
+                var link = nodes[i];
+                var href = link.href || '';
+                if (!/\\/(chat|c)\\//.test(href) && href.indexOf('grok.com') === -1) continue;
+                if (!/grok\\.com/.test(href)) continue;
+                if (href.indexOf('/chat') === -1 && href.indexOf('/c/') === -1) continue;
+                var title = (link.innerText || link.getAttribute('aria-label') || '').trim().split('\\n')[0];
+                if (!title || title.length > 80 || seen[href]) continue;
+                seen[href] = true;
+                out.push({title: title, href: href});
+                if (out.length >= 8) break;
+            }
+            return JSON.stringify(out);
+        })();
+        """
+        webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let self else { return }
+            var chats: [(title: String, href: String)] = []
+            if let text = result as? String, let data = text.data(using: .utf8),
+               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] {
+                chats = rows.compactMap { row in
+                    guard let title = row["title"], let href = row["href"] else { return nil }
+                    return (title, href)
+                }
+            }
+            self.rebuildStatusMenu(recent: chats)
+        }
     }
     
     func hideStatusBar() {
@@ -1588,6 +1694,15 @@ extension AppDelegate: WKScriptMessageHandler {
         } else if message.name == GrokUsageBadge.messageHandlerName {
             GrokUsageBadge.handleScriptMessage(message, in: webView)
         }
+    }
+}
+
+// MARK: - Menu bar
+extension AppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === statusItem?.menu else { return }
+        rebuildStatusMenu(recent: nil)
+        scrapeRecentChats()
     }
 }
 

@@ -15,6 +15,10 @@ import SwiftUI
 import AppKit
 import UserNotifications
 
+extension Notification.Name {
+    static let grokUsagePercentDidChange = Notification.Name("grokUsagePercentDidChange")
+}
+
 enum GrokUsageBadge {
     static let messageHandlerName = "grokUsageBadge"
     static let refreshIntervalKey = "grok.usageBadgeRefreshSeconds"
@@ -165,6 +169,9 @@ enum GrokUsageBadge {
             )
         } else if action == "usageUpdated" {
             if let percent = body["percent"] as? Int {
+                UserDefaults.standard.set(percent, forKey: percentStorageKey)
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: updatedAtStorageKey)
+                NotificationCenter.default.post(name: .grokUsagePercentDidChange, object: percent)
                 checkAndNotifyUsageCrossing(percent: percent)
             }
         }
