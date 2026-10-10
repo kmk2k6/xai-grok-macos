@@ -13,6 +13,7 @@ import Foundation
 import WebKit
 import SwiftUI
 import AppKit
+import UserNotifications
 
 enum GrokUsageBadge {
     static let messageHandlerName = "grokUsageBadge"
@@ -20,6 +21,10 @@ enum GrokUsageBadge {
     static let percentStorageKey = "grok.usageBadge.percent"
     static let endpointStorageKey = "grok.usageBadge.endpointPath"
     static let updatedAtStorageKey = "grok.usageBadge.updatedAt"
+    static let notificationsEnabledKey = "grok.usageNotificationsEnabled"
+    private static let notified80Key = "grok.usageBadge.notified80"
+    private static let notified95Key = "grok.usageBadge.notified95"
+    private static let lastNotifiedPercentKey = "grok.usageBadge.lastPercent"
     static let defaultRefreshSeconds = 300 // default ~5 min, clamp 30…3600
 
     /// Persisted optional refresh interval (seconds). Clamped 30…3600.
@@ -76,6 +81,63 @@ enum GrokUsageBadge {
 
     static var currentPopover: NSPopover?
 
+    static var notificationsEnabled: Bool {
+        UserDefaults.standard.object(forKey: notificationsEnabledKey) as? Bool ?? true
+    }
+
+    static func checkAndNotifyUsageCrossing(percent: Int) {
+        guard notificationsEnabled else { return }
+
+        var notified80 = UserDefaults.standard.bool(forKey: notified80Key)
+        var notified95 = UserDefaults.standard.bool(forKey: notified95Key)
+
+        // Reset crossing state if usage drops below thresholds (e.g. usage reset)
+        if percent < 80 {
+            notified80 = false
+            notified95 = false
+        } else if percent < 95 {
+            notified95 = false
+        }
+
+        if percent >= 80 && !notified80 {
+            notified80 = true
+            postUsageNotification(
+                title: "Grok Usage Alert (80%)",
+                body: "Grok usage has crossed 80% (\(percent)% used)."
+            )
+        }
+
+        if percent >= 95 && !notified95 {
+            notified95 = true
+            postUsageNotification(
+                title: "Grok Usage Alert (95%)",
+                body: "Grok usage has reached \(percent)% (critical limit: 95%)."
+            )
+        }
+
+        UserDefaults.standard.set(notified80, forKey: notified80Key)
+        UserDefaults.standard.set(notified95, forKey: notified95Key)
+        UserDefaults.standard.set(percent, forKey: lastNotifiedPercentKey)
+    }
+
+    private static func postUsageNotification(title: String, body: String) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+
+            let request = UNNotificationRequest(
+                identifier: "grok-usage-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            center.add(request, withCompletionHandler: nil)
+        }
+    }
+
     static func handleScriptMessage(_ message: WKScriptMessage, in webView: WKWebView) {
         guard let body = message.body as? [String: Any],
               let action = body["action"] as? String else {
@@ -91,12 +153,20 @@ enum GrokUsageBadge {
             let updatedAtEpoch = (body["updatedAt"] as? NSNumber)?.doubleValue
             let updatedAt = updatedAtEpoch != nil ? Date(timeIntervalSince1970: updatedAtEpoch! / 1000.0) : nil
 
+            if let percent {
+                checkAndNotifyUsageCrossing(percent: percent)
+            }
+
             showPopover(
                 anchoredAt: CGRect(x: x, y: y, width: width, height: height),
                 percent: percent,
                 updatedAt: updatedAt,
                 in: webView
             )
+        } else if action == "usageUpdated" {
+            if let percent = body["percent"] as? Int {
+                checkAndNotifyUsageCrossing(percent: percent)
+            }
         }
     }
 
@@ -202,6 +272,13 @@ enum GrokUsageBadge {
         window.__grokUsageState.updatedAt = now;
         try { window.localStorage.setItem(PERCENT_KEY, String(rounded)); } catch (e) {}
         try { window.localStorage.setItem(UPDATED_AT_KEY, String(now)); } catch (e) {}
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.grokUsageBadge) {
+          window.webkit.messageHandlers.grokUsageBadge.postMessage({
+            action: "usageUpdated",
+            percent: rounded,
+            updatedAt: now
+          });
+        }
       }
 
       function saveEndpoint(urlStr, method) {
@@ -573,6 +650,13 @@ enum GrokUsageBadge {
             }
             try { window.localStorage.setItem(PERCENT_KEY, String(state.percent)); } catch (e) {}
             try { window.localStorage.setItem(UPDATED_AT_KEY, String(state.updatedAt)); } catch (e) {}
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.grokUsageBadge) {
+              window.webkit.messageHandlers.grokUsageBadge.postMessage({
+                action: "usageUpdated",
+                percent: state.percent,
+                updatedAt: state.updatedAt
+              });
+            }
           }
 
           state.percent = (window.__grokUsageState && window.__grokUsageState.percent != null)
@@ -580,6 +664,14 @@ enum GrokUsageBadge {
             : readStoredPercent();
           state.updatedAt = (window.__grokUsageState && window.__grokUsageState.updatedAt)
             || readStoredUpdatedAt();
+
+          if (state.percent != null && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.grokUsageBadge) {
+            window.webkit.messageHandlers.grokUsageBadge.postMessage({
+              action: "usageUpdated",
+              percent: state.percent,
+              updatedAt: state.updatedAt || Date.now()
+            });
+          }
 
           if (window.__grokUsageBoltInstalled) {
             window.__grokUsageBoltRender && window.__grokUsageBoltRender();

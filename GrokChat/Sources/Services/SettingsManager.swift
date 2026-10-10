@@ -15,6 +15,7 @@ class SettingsManager: ObservableObject {
     @AppStorage("streamResponses") var streamResponses: Bool = true
     @AppStorage("fontSize") var fontSize: Double = 14
     @AppStorage("colorScheme") var colorScheme: String = "system"
+    @AppStorage("grok.usageNotificationsEnabled") var usageNotificationsEnabled: Bool = true
 
     private var isLoading = true
 
@@ -48,6 +49,7 @@ class SettingsManager: ObservableObject {
         streamResponses = true
         fontSize = 14
         colorScheme = "system"
+        usageNotificationsEnabled = true
     }
 
     func resetGlassAppearance() {
