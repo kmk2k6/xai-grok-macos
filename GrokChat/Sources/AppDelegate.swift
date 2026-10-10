@@ -649,6 +649,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         sendToBuildItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(sendToBuildItem)
+        fileMenu.addItem(withTitle: "Export Chat…", action: #selector(exportChat(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Quick Ask", action: #selector(showQuickAsk(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Quick Query", action: #selector(toggleInputWindow(_:)), keyEquivalent: " ") // Option+Space is handled by HotKeyManager, this is a menu item backup
         fileMenu.addItem(NSMenuItem.separator())
@@ -2009,6 +2010,10 @@ extension AppDelegate: WKNavigationDelegate {
 
     @objc func showQuickAsk(_ sender: Any?) {
         QuickAskController.toggle()
+    }
+
+    @objc func exportChat(_ sender: Any?) {
+        ChatExporter.export(from: activeWebView, window: window)
     }
 
     @objc func showPromptLibrary(_ sender: Any?) {
