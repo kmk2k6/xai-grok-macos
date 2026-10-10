@@ -107,6 +107,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var zenMode = false
     var pipWindow: NSWindow?
     var pipWebView: WKWebView?
+    var shortcutWindow: NSWindow?
     var aboutWindow: NSWindow?
     var statusItem: NSStatusItem!
     
@@ -783,8 +784,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             windowMenu.addItem(item)
         }
         
+        let helpMenuItem = NSMenuItem()
+        mainMenu.addItem(helpMenuItem)
+        let helpMenu = NSMenu(title: "Help")
+        helpMenuItem.submenu = helpMenu
+        helpMenu.addItem(withTitle: "Keyboard Shortcuts", action: #selector(showShortcutCheatSheet(_:)), keyEquivalent: "/")
+
         NSApplication.shared.mainMenu = mainMenu
         NSApplication.shared.windowsMenu = windowMenu
+        NSApplication.shared.helpMenu = helpMenu
+    }
+
+    @objc func showShortcutCheatSheet(_ sender: Any?) {
+        if shortcutWindow == nil {
+            let panel = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 420),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = "Keyboard Shortcuts"
+            panel.isReleasedWhenClosed = false
+            let view = NSTextView(frame: NSRect(x: 16, y: 16, width: 428, height: 388))
+            view.isEditable = false
+            view.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            view.string = """
+            Option-Space          Quick Ask
+            Control-Option-4      Screenshot to Grok
+            Command-T             New grok.com tab
+            Command-W             Close tab, or hide the window
+            Command-1 … 9         Switch chat tab
+            Command-Shift-P       Prompt library
+            Command-F             Find in page
+            Command-Shift-F       Focus mode
+            Command-Control-F     Full screen
+            Command-= / - / 0     Zoom in, out, actual size
+            Command-/             This cheat sheet
+            Command-N             New chat in the current tab
+            Command-,             Settings
+            """
+            view.setAccessibilityLabel("Keyboard shortcuts")
+            panel.contentView = view
+            panel.center()
+            shortcutWindow = panel
+        }
+        shortcutWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
     
     // Don't quit when the "x" is clicked, just close the window
