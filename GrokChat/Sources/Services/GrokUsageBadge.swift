@@ -857,6 +857,7 @@ enum GrokUsageBadge {
               "}",
               "#grok-native-usage-bolt:hover{background:rgba(255,255,255,.16);color:#fff;}",
               "#grok-native-usage-bolt:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:2px;}",
+              "#grok-native-usage-bolt[data-level='good']{color:#4ade80;border-color:rgba(74,222,128,.4);}",
               "#grok-native-usage-bolt[data-level='warn']{color:#fbbf24;border-color:rgba(251,191,36,.4);}",
               "#grok-native-usage-bolt[data-level='danger']{color:#f87171;border-color:rgba(248,113,113,.45);}"
             ].join("");
@@ -959,9 +960,13 @@ enum GrokUsageBadge {
             bolt.textContent = currentPercent == null ? "\\u03DF" : "\\u03DF " + currentPercent + "%";
             bolt.setAttribute("aria-label", currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)");
             bolt.title = currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)";
-            if (currentPercent >= 90) bolt.setAttribute("data-level", "danger");
-            else if (currentPercent >= 70) bolt.setAttribute("data-level", "warn");
-            else bolt.removeAttribute("data-level");
+            if (currentPercent != null) {
+              if (currentPercent > 85) bolt.setAttribute("data-level", "danger");
+              else if (currentPercent >= 60) bolt.setAttribute("data-level", "warn");
+              else bolt.setAttribute("data-level", "good");
+            } else {
+              bolt.removeAttribute("data-level");
+            }
           }
 
           window.__grokUsageBoltRender = render;
