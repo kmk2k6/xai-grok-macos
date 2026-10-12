@@ -359,6 +359,14 @@ enum GrokUsageBadge {
         try { window.localStorage.setItem(ENDPOINT_PATH_KEY, path); } catch (e) {}
       }
 
+      try {
+        if (window.localStorage.getItem("grok.usageBadge.percentMigration") !== "1") {
+          window.localStorage.removeItem(PERCENT_KEY);
+          window.localStorage.setItem("grok.usageBadge.percentMigration", "1");
+          window.__grokUsageState.percent = null;
+        }
+      } catch (e) {}
+
       if (window.__grokUsageState.percent == null) {
         window.__grokUsageState.percent = readStoredPercent();
       }
@@ -826,7 +834,37 @@ enum GrokUsageBadge {
             return true;
           }
 
+          function weeklyPercentFromUsagePanel(text) {
+            if (!text) return null;
+            var normalized = String(text).replace(/(\\d)\\s+(?=[\\d.])/g, "$1").replace(/(\\.)\\s+(?=\\d)/g, "$1");
+            var start = normalized.search(/weekly\\s+supergrok\\s+limit/i);
+            if (start < 0) return null;
+            var rest = normalized.slice(start);
+            var end = rest.search(/extra usage|additional credits|buy credits/i);
+            var section = end > 0 ? rest.slice(0, end) : rest.slice(0, 800);
+            var headline = section.match(/(\\d{1,3}(?:\\.\\d+)?)\\s*%\\s*used/i);
+            if (!headline) headline = section.match(/\\bused\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*%/i);
+            if (headline) {
+              var headlineValue = Math.round(parseFloat(headline[1]));
+              if (headlineValue >= 0 && headlineValue <= 100) return headlineValue;
+            }
+            var percentRe = /(\\d{1,3}(?:\\.\\d+)?)\\s*%/g;
+            var sum = 0;
+            var count = 0;
+            var found;
+            while ((found = percentRe.exec(section)) !== null) {
+              var part = Math.round(parseFloat(found[1]));
+              if (part < 0 || part > 100) continue;
+              sum += part;
+              count += 1;
+            }
+            if (!count || sum > 100) return null;
+            return sum;
+          }
+
           function usagePercentFromText(text) {
+            var weekly = weeklyPercentFromUsagePanel(text);
+            if (weekly != null) return weekly;
             if (!text || !/\\busage\\b/i.test(text)) return null;
             // grok.com puts each digit in its own node, so the dialog text is "2\\n1%" for 21%.
             var normalized = String(text).replace(/(\\d)\\s+(?=[\\d.])/g, "$1").replace(/(\\.)\\s+(?=\\d)/g, "$1");
@@ -860,11 +898,18 @@ enum GrokUsageBadge {
 
           function capturePercentFromOpenUsageDialog() {
             var nodes = document.querySelectorAll("[role='dialog'], [aria-modal='true'], [data-state='open']");
+            var fallback = null;
             for (var i = 0; i < nodes.length; i++) {
               if (!visible(nodes[i])) continue;
-              var value = usagePercentFromText(textOf(nodes[i]));
-              if (value != null) { savePercent(value); window.__grokUsageBoltRender(); return; }
+              var text = textOf(nodes[i]);
+              var weekly = weeklyPercentFromUsagePanel(text);
+              if (weekly != null) { savePercent(weekly); window.__grokUsageBoltRender(); return; }
+              if (fallback == null) {
+                var value = usagePercentFromText(text);
+                if (value != null) fallback = value;
+              }
             }
+            if (fallback != null) { savePercent(fallback); window.__grokUsageBoltRender(); }
           }
 
           function scheduleCapture() {
@@ -1125,6 +1170,13 @@ enum GrokUsageBadge {
           }
 
           function render() {
+            if (usageDetailIsOpen()) {
+              var now = Date.now();
+              if (!window.__grokUsageCaptureAt || now - window.__grokUsageCaptureAt > 1500) {
+                window.__grokUsageCaptureAt = now;
+                capturePercentFromOpenUsageDialog();
+              }
+            }
             var profile = findProfileHost();
             if (!profile) return;
             var bolt = attachBolt(profile);
@@ -1153,6 +1205,7 @@ enum GrokUsageBadge {
 
           ensureStyle();
           render();
+          scheduleCapture();
           var observer = new MutationObserver(function() {
             if (window.__grokUsageBoltMOTimer) return;
             window.__grokUsageBoltMOTimer = setTimeout(function() {

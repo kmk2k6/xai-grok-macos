@@ -1925,7 +1925,8 @@ extension AppDelegate: WKScriptMessageHandler {
             }
             openNativeBuildFromWeb()
         } else if message.name == GrokUsageBadge.messageHandlerName {
-            GrokUsageBadge.handleScriptMessage(message, in: webView)
+            // Extra grok.com tabs register this same handler from GrokChatTabs.
+            GrokUsageBadge.handleScriptMessage(message, in: message.webView ?? webView)
         }
     }
 }
