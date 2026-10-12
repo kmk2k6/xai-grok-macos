@@ -70,12 +70,13 @@ The bolt in the menu bar shows the usage percent reported by the page, recent gr
 | **Grokipedia** | grokipedia.com |
 | **𝕏** | x.com |
 | **Console** | console.x.ai, from Build |
-| **Grok Bot** | The separate Grok Bot app, beside the mode switcher |
+| **Grok Bot** | The Grok Bot web app at x.ai/bot, in its own tab |
 
 ### 🤖 Grok Bot
-- The mode bar, the menu bar extra, and the command palette can switch to Grok Bot.
-- The default hotkey is **⌃⌥G**. Settings also offers **⌃⌥B** and **⌥⇧G**.
-- If Grok Bot is already the frontmost app, the hotkey comes back to Grok.
+- **Grok Bot** in the mode bar, File → Grok Bot, and **⌘⇧B** open the Grok Bot web app in its own tab. Sign-in stays in that tab. Links that leave the Grok Bot site open in your browser.
+- The login is stored separately from grok.com and is still there after a relaunch.
+- **⌃⌥G** still opens the separate Grok Bot app. The menu bar extra and the command palette action **Grok Bot App** do too.
+- Settings also offers **⌃⌥B** and **⌥⇧G** for that app switch. If Grok Bot is already the frontmost app, the hotkey comes back to Grok.
 - If Grok Bot is not in `/Applications` or `~/Applications`, Settings has a path field and a Choose… button.
 
 ### 🖥️ Build terminal
@@ -144,7 +145,8 @@ See [Build from Source](#-build-from-source) below.
 |--------|----------|
 | **Quick Ask** | ⌥Space (customizable) |
 | **Screenshot to Grok** | ⌃⌥4 |
-| **Grok Bot** | ⌃⌥G (customizable) |
+| **Grok Bot tab** | ⌘⇧B |
+| **Grok Bot app** | ⌃⌥G (customizable) |
 | **New Tab** | ⌘T |
 | **Close Tab / Hide Window** | ⌘W |
 | **Switch Tab** | ⌘1–9 |
