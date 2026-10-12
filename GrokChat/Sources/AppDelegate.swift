@@ -133,6 +133,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var glassObservation: AnyCancellable?
     private var windowFrameObservation: NSObjectProtocol?
     private var fullScreenObservations: [NSObjectProtocol] = []
+    private var handoffTimer: Timer?
     private var consoleWebViewLoaded = false
     private var titlebarBackgroundView: NSView?
     var webView: WKWebView!
@@ -617,6 +618,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.delegate = self
         statusItem.menu = menu
         refreshUsageStatusButton()
+        if handoffTimer == nil {
+            let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+                GrokHandoff.refreshAttention { _ in
+                    self?.refreshUsageStatusButton()
+                }
+            }
+            timer.tolerance = 5
+            RunLoop.main.add(timer, forMode: .common)
+            handoffTimer = timer
+            GrokHandoff.refreshAttention { [weak self] _ in
+                self?.refreshUsageStatusButton()
+            }
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(usagePercentChanged(_:)),
@@ -642,13 +656,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func refreshUsageStatusButton() {
         guard let button = statusItem?.button else { return }
+        let waiting = GrokHandoff.outboxNeedsAttention()
+        let title = NSMutableAttributedString()
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let handoff = waiting ? "waiting" : "clear"
         if let percent = UserDefaults.standard.object(forKey: GrokUsageBadge.percentStorageKey) as? Int {
-            button.title = " \(percent)%"
-            button.setAccessibilityLabel("Grok usage \(percent) percent")
+            title.append(NSAttributedString(string: " \(percent)% ", attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor
+            ]))
+            button.setAccessibilityLabel("Grok usage \(percent) percent, handoff \(handoff)")
         } else {
-            button.title = ""
-            button.setAccessibilityLabel("Grok usage")
+            title.append(NSAttributedString(string: " ", attributes: [.font: font]))
+            button.setAccessibilityLabel("Grok usage, handoff \(handoff)")
         }
+        title.append(NSAttributedString(string: "●", attributes: [
+            .font: NSFont.systemFont(ofSize: 9),
+            .foregroundColor: waiting ? NSColor.systemYellow : NSColor.systemGreen
+        ]))
+        button.attributedTitle = title
     }
 
     private func rebuildStatusMenu(recent: [(title: String, href: String)]? = nil) {
@@ -693,6 +719,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let grokBot = NSMenuItem(title: "Grok Bot", action: #selector(toggleGrokBot(_:)), keyEquivalent: "")
         grokBot.target = self
         menu.addItem(grokBot)
+        let handoff = NSMenuItem(title: "Handoff inbox…", action: #selector(showHandoffInbox(_:)), keyEquivalent: "")
+        handoff.target = self
+        menu.addItem(handoff)
         menu.addItem(NSMenuItem.separator())
         let settings = NSMenuItem(title: "Settings...", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
@@ -832,6 +861,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         grokBotTabItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(grokBotTabItem)
+        fileMenu.addItem(withTitle: "Handoff Inbox…", action: #selector(showHandoffInbox(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Export Chat…", action: #selector(exportChat(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Quick Ask", action: #selector(showQuickAsk(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Quick Query", action: #selector(toggleInputWindow(_:)), keyEquivalent: " ") // Option+Space is handled by HotKeyManager, this is a menu item backup
@@ -1514,6 +1544,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showGrokBotTab(_ sender: Any?) {
         GrokBotSwitcher.launchOrBringForward()
+    }
+
+    @objc func showHandoffInbox(_ sender: Any?) {
+        GrokHandoffPanel.shared.show()
     }
 
     @objc func sendArmedTextToGrokBot(_ sender: Any?) {
@@ -2508,6 +2542,9 @@ extension AppDelegate: WKNavigationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         GrokAskService.shared.consumeIfPresent()
         UsageBoltAutoRefresh.shared.refreshBecauseActive()
+        GrokHandoff.refreshAttention { [weak self] _ in
+            self?.refreshUsageStatusButton()
+        }
     }
 
     private func injectGrokBuildNativeHookIfNeeded(in webView: WKWebView) {
