@@ -156,6 +156,14 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
                 app?.showSettings(nil)
             }
         }
+        // One palette entry per configured Grok Bot so the palette can open a
+        // specific bot (not just launch the app). Opens the bot's grokbot:// deep
+        // link; falls back to the launcher when a bot has no usable URL.
+        let botCommands: [PaletteCommand] = GrokBotSwitcher.configuredBots().map { bot in
+            PaletteCommand(title: "Grok Bot: \(bot.name)", group: "Action") {
+                GrokBotSwitcher.open(bot)
+            }
+        }
         return [
             action("New Chat") { $0.newChat(nil) },
             action("New Tab") { $0.newChatTab(nil) },
@@ -168,6 +176,8 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
             action("Screenshot to Grok") { $0.captureScreenRegion() },
             action("Build Terminal") { $0.showBuildTerminal(nil) },
             action("Grok Bot") { _ in GrokBotSwitcher.launchOrBringForward() },
+            action("Grok Bot Routines") { _ in GrokBotSwitcher.openRoutines() },
+            action("Grok Bot Usage") { _ in GrokBotSwitcher.openUsage() },
             action("Send Terminal Selection to Grok") { $0.sendTerminalSelection(nil) },
             action("Keyboard Shortcuts") { $0.showShortcutCheatSheet(nil) },
             action("Settings") { $0.showSettings(nil) },
@@ -189,6 +199,6 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
             setting("Terminal theme"),
             setting("Grok API key"),
             setting("Safety mode")
-        ]
+        ] + botCommands
     }
 }

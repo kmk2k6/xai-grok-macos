@@ -689,6 +689,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             usage.isEnabled = false
             menu.addItem(usage)
         }
+        // Opens the Grok Bot usage screen directly via its grokbot:// deep link
+        // (never a fabricated number). The grok.com percent row above is untouched.
+        let grokBotUsage = NSMenuItem(title: "Open Grok Bot usage", action: #selector(openGrokBotUsage(_:)), keyEquivalent: "")
+        grokBotUsage.target = self
+        menu.addItem(grokBotUsage)
         menu.addItem(NSMenuItem.separator())
         let header = NSMenuItem(title: "Recent chats", action: nil, keyEquivalent: "")
         header.isEnabled = false
@@ -719,6 +724,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let grokBot = NSMenuItem(title: "Grok Bot", action: #selector(toggleGrokBot(_:)), keyEquivalent: "")
         grokBot.target = self
         menu.addItem(grokBot)
+        let botSwitcher = NSMenuItem(title: "Grok Bots", action: nil, keyEquivalent: "")
+        botSwitcher.submenu = buildBotSwitcherMenu()
+        menu.addItem(botSwitcher)
+        let routines = NSMenuItem(title: "Grok Bot Routines", action: #selector(showGrokBotRoutines(_:)), keyEquivalent: "")
+        routines.target = self
+        menu.addItem(routines)
         let handoff = NSMenuItem(title: "Handoff inbox…", action: #selector(showHandoffInbox(_:)), keyEquivalent: "")
         handoff.target = self
         menu.addItem(handoff)
@@ -861,6 +872,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         grokBotTabItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(grokBotTabItem)
+        let botSwitcherItem = NSMenuItem(title: "Grok Bots", action: nil, keyEquivalent: "")
+        let botSwitcherSubmenu = buildBotSwitcherMenu()
+        // Rebuild on open so runtime edits to the bot list appear without relaunch,
+        // matching the bolt menu's behavior (identified via this title in menuWillOpen).
+        botSwitcherSubmenu.delegate = self
+        botSwitcherItem.submenu = botSwitcherSubmenu
+        fileMenu.addItem(botSwitcherItem)
+        let routinesItem = NSMenuItem(
+            title: "Grok Bot Routines",
+            action: #selector(showGrokBotRoutines(_:)),
+            keyEquivalent: ""
+        )
+        routinesItem.target = self
+        fileMenu.addItem(routinesItem)
         fileMenu.addItem(withTitle: "Handoff Inbox…", action: #selector(showHandoffInbox(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Export Chat…", action: #selector(exportChat(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: "Quick Ask", action: #selector(showQuickAsk(_:)), keyEquivalent: "")
@@ -1546,6 +1571,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         GrokBotSwitcher.launchOrBringForward()
     }
 
+    // MARK: - Week 4: Grok Bot switcher / routines / usage
+
+    /// Builds the "Grok Bots" submenu from the optional user-configured bot list.
+    /// When no bots are configured (the default) it offers a single "Open Grok Bot"
+    /// entry that brings the native app forward.
+    func buildBotSwitcherMenu() -> NSMenu {
+        let menu = NSMenu(title: "Grok Bots")
+        populateBotSwitcherMenu(menu)
+        return menu
+    }
+
+    /// Fills `menu` with the current bot list. Called at build time and again on
+    /// open (via `menuWillOpen`) so edits to `grok.bot.switcherBots` show up live.
+    func populateBotSwitcherMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let bots = GrokBotSwitcher.configuredBots()
+        if bots.isEmpty {
+            let item = NSMenuItem(title: "Open Grok Bot", action: #selector(openBotFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.setAccessibilityLabel("Open Grok Bot")
+            menu.addItem(item)
+        } else {
+            for (index, bot) in bots.enumerated() {
+                let item = NSMenuItem(title: bot.name, action: #selector(openBotFromMenu(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = index
+                item.setAccessibilityLabel(bot.name)
+                menu.addItem(item)
+            }
+        }
+    }
+
+    /// Opens the bot entry whose index is carried in `representedObject`, or just
+    /// brings the Grok Bot app forward when there is no represented bot.
+    @objc func openBotFromMenu(_ sender: NSMenuItem) {
+        let bots = GrokBotSwitcher.configuredBots()
+        if let index = sender.representedObject as? Int, bots.indices.contains(index) {
+            GrokBotSwitcher.open(bots[index])
+        } else {
+            GrokBotSwitcher.launchOrBringForward()
+        }
+    }
+
+    @objc func showGrokBotRoutines(_ sender: Any?) {
+        GrokBotSwitcher.openRoutines()
+    }
+
+    @objc func openGrokBotUsage(_ sender: Any?) {
+        GrokBotSwitcher.openUsage()
+    }
+
     @objc func showHandoffInbox(_ sender: Any?) {
         GrokHandoffPanel.shared.show()
     }
@@ -2066,6 +2142,12 @@ extension AppDelegate: WKScriptMessageHandler {
 // MARK: - Menu bar
 extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
+        // The File-menu "Grok Bots" submenu rebuilds on open for parity with the
+        // bolt menu (both reflect runtime edits to grok.bot.switcherBots).
+        if menu.title == "Grok Bots" {
+            populateBotSwitcherMenu(menu)
+            return
+        }
         guard menu === statusItem?.menu else { return }
         rebuildStatusMenu(recent: nil)
         scrapeRecentChats()
