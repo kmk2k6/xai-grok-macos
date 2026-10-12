@@ -226,4 +226,60 @@ enum GrokBotSwitcher {
         }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
+
+    static let bundleID = "com.anysphere.sand"
+    static let downloadURL = URL(string: "https://x.ai/bot")!
+
+    /// Grok Bot.app in /Applications, matched by name or bundle id.
+    static func installedApplicationURL() -> URL? {
+        let root = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        for name in ["Grok Bot.app", "GrokBot.app"] {
+            let url = root.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+           url.path.hasPrefix("/Applications/") {
+            return url
+        }
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return nil }
+        for name in names where name.hasSuffix(".app") {
+            let url = root.appendingPathComponent(name)
+            let base = (name as NSString).deletingPathExtension
+            if Bundle(url: url)?.bundleIdentifier == bundleID || base.localizedCaseInsensitiveContains("grok bot") {
+                return url
+            }
+        }
+        return nil
+    }
+
+    /// Launch Grok Bot, or bring it forward if it is already running.
+    static func launchOrBringForward() {
+        guard let url = installedApplicationURL() else {
+            presentMissingNote()
+            return
+        }
+        let identifier = Bundle(url: url)?.bundleIdentifier ?? bundleID
+        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first {
+            running.activate(options: [.activateAllWindows])
+            return
+        }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config)
+    }
+
+    static func presentMissingNote() {
+        let alert = NSAlert()
+        alert.messageText = "Grok Bot isn't installed"
+        alert.informativeText = "Download Grok Bot from x.ai/bot, then try again."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(downloadURL)
+        }
+    }
 }

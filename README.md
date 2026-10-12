@@ -70,14 +70,13 @@ The bolt in the menu bar shows the usage percent reported by the page, recent gr
 | **Grokipedia** | grokipedia.com |
 | **𝕏** | x.com |
 | **Console** | console.x.ai, from Build |
-| **Grok Bot** | The Grok Bot web app at x.ai/bot, in its own tab |
+| **Grok Bot** | The separate Grok Bot app, beside the mode switcher |
 
 ### 🤖 Grok Bot
-- **Grok Bot** in the mode bar, File → Grok Bot, and **⌘⇧B** open the Grok Bot web app in its own tab. Sign-in stays in that tab. Links that leave the Grok Bot site open in your browser.
-- The login is stored separately from grok.com and is still there after a relaunch.
-- **⌃⌥G** still opens the separate Grok Bot app. The menu bar extra and the command palette action **Grok Bot App** do too.
-- Settings also offers **⌃⌥B** and **⌥⇧G** for that app switch. If Grok Bot is already the frontmost app, the hotkey comes back to Grok.
-- If Grok Bot is not in `/Applications` or `~/Applications`, Settings has a path field and a Choose… button.
+- **Grok Bot** in the mode bar, File → Grok Bot, **⌘⇧B**, and the command palette launch the Grok Bot app in `/Applications`, or bring it forward if it is already running.
+- If that app is not installed, Grok shows “Grok Bot isn't installed” and a download link to [x.ai/bot](https://x.ai/bot).
+- **⌃⌥G** still switches between Grok and the Grok Bot app. The menu bar extra does too. If Grok Bot is already the frontmost app, the hotkey comes back to Grok.
+- Settings also offers **⌃⌥B** and **⌥⇧G**. If Grok Bot is not in `/Applications` or `~/Applications`, Settings has a path field and a Choose… button.
 
 ### 🖥️ Build terminal
 Build includes a live shell powered by SwiftTerm:
@@ -145,8 +144,8 @@ See [Build from Source](#-build-from-source) below.
 |--------|----------|
 | **Quick Ask** | ⌥Space (customizable) |
 | **Screenshot to Grok** | ⌃⌥4 |
-| **Grok Bot tab** | ⌘⇧B |
-| **Grok Bot app** | ⌃⌥G (customizable) |
+| **Open Grok Bot** | ⌘⇧B |
+| **Switch with Grok Bot** | ⌃⌥G (customizable) |
 | **New Tab** | ⌘T |
 | **Close Tab / Hide Window** | ⌘W |
 | **Switch Tab** | ⌘1–9 |

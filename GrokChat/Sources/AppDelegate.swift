@@ -25,7 +25,6 @@ enum AppMode {
     case grokipedia
     case xTwitter
     case chatX  // chat.x.com - X's native chat interface
-    case grokBot
 
     var sessionKey: String {
         switch self {
@@ -35,7 +34,6 @@ enum AppMode {
         case .grokipedia: return "grokipedia"
         case .xTwitter: return "xTwitter"
         case .chatX: return "chatX"
-        case .grokBot: return "grokBot"
         }
     }
 
@@ -47,28 +45,8 @@ enum AppMode {
         case "grokipedia": return .grokipedia
         case "xTwitter": return .xTwitter
         case "chatX": return .chatX
-        case "grokBot": return .grokBot
         default: return nil
         }
-    }
-}
-
-/// Grok Bot's web app. Its website data store is persistent and separate from grok.com.
-enum GrokBotWeb {
-    static let home = URL(string: "https://x.ai/bot")!
-    /// Stable id so cookies and login survive relaunch. Not the all-zero UUID (WebKit rejects that).
-    static let dataStoreID = UUID(uuidString: "C3A91E40-7B2D-4F6A-9C15-8E2D4A6B0F71")!
-
-    static func staysInApp(_ host: String) -> Bool {
-        let h = host.lowercased()
-        let roots = ["x.ai", "cursor.com", "cursor.sh", "grok.com", "x.com", "twitter.com", "google.com", "apple.com", "workos.com"]
-        return roots.contains { h == $0 || h.hasSuffix("." + $0) }
-    }
-
-    static func shouldRemember(_ url: URL) -> Bool {
-        guard url.scheme == "https", let host = url.host?.lowercased() else { return false }
-        let roots = ["x.ai", "cursor.com", "cursor.sh"]
-        return roots.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 }
 
@@ -123,6 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var chromeBorderView: NSView!
     private var glassObservation: AnyCancellable?
     private var windowFrameObservation: NSObjectProtocol?
+    private var fullScreenObservations: [NSObjectProtocol] = []
     private var consoleWebViewLoaded = false
     private var titlebarBackgroundView: NSView?
     var webView: WKWebView!
@@ -133,7 +112,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var xWebView: WKWebView!
     var authPopupWindows: [NSWindow] = []
     var chatXWebView: WKWebView!  // chat.x.com - shares cookies with xWebView
-    var grokBotWebView: WKWebView!
     var devViewController: NSHostingController<BuildRootView>?
     var currentMode: AppMode = .chat {
         didSet {
@@ -344,9 +322,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             chatXWebView.load(URLRequest(url: chatXURL))
         }
 
-        grokBotWebView = makeGrokBotWebView()
-        grokBotWebView.load(URLRequest(url: GrokBotWeb.home))
-
         // Load Grok Chat
         if let url = URL(string: "https://grok.com") {
             webView.load(URLRequest(url: url))
@@ -361,6 +336,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: window,
             queue: .main
         ) { [weak self] _ in self?.layoutChromeStrip() }
+        fullScreenObservations = [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification].map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in self?.layoutChromeStrip() }
+        }
         
         // Show window and make key
         window.makeKeyAndOrderFront(nil)
@@ -391,9 +373,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func rememberURL(_ url: URL?) {
-        guard let url else { return }
-        let allowed = currentMode == .grokBot ? GrokBotWeb.shouldRemember(url) : Self.sessionURLIsRestorable(url)
-        guard allowed else { return }
+        guard let url, Self.sessionURLIsRestorable(url) else { return }
         UserDefaults.standard.set(url.absoluteString, forKey: Self.sessionURLKey)
     }
 
@@ -405,13 +385,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard mode != .developer,
               let raw = UserDefaults.standard.string(forKey: Self.sessionURLKey),
               let url = URL(string: raw),
-              mode == .grokBot ? GrokBotWeb.shouldRemember(url) : Self.sessionURLIsRestorable(url) else { return }
+              Self.sessionURLIsRestorable(url) else { return }
         let target: WKWebView
         switch mode {
         case .grokipedia: target = grokipediaWebView
         case .xTwitter: target = xWebView
         case .chatX: target = chatXWebView
-        case .grokBot: target = grokBotWebView
         case .console: target = consoleWebView
         default: target = webView
         }
@@ -506,9 +485,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         styleOpaqueWebView(grokipediaWebView, solid: solid)
         styleOpaqueWebView(xWebView, solid: solid)
         styleOpaqueWebView(chatXWebView, solid: solid)
-        if grokBotWebView != nil {
-            styleOpaqueWebView(grokBotWebView, solid: solid)
-        }
         if consoleWebViewLoaded {
             styleOpaqueWebView(consoleWebView, solid: solid)
         }
@@ -529,6 +505,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chromeTintView.frame = chromeEffectView.frame
         chromeBorderView.frame = NSRect(x: 0, y: y, width: width, height: 1)
         layoutChatTabs()
+        insetBrowserPage(chromeHeight: chromeHeight)
         layoutFindBar()
         if zenMode && currentMode == .chat {
             chromeEffectView.isHidden = true
@@ -542,6 +519,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
         content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
         content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
+    }
+
+    /// Keep page content under the titlebar so the mode switcher cannot cover site controls.
+    private func insetBrowserPage(chromeHeight: CGFloat) {
+        guard currentMode != .chat, currentMode != .developer, let content = mainContainerView else { return }
+        let frame = NSRect(
+            x: 0,
+            y: 0,
+            width: content.bounds.width,
+            height: max(0, content.bounds.height - chromeHeight)
+        )
+        switch currentMode {
+        case .grokipedia: grokipediaWebView?.frame = frame
+        case .xTwitter: xWebView?.frame = frame
+        case .chatX: chatXWebView?.frame = frame
+        case .console:
+            if consoleWebViewLoaded { consoleWebView.frame = frame }
+        default:
+            break
+        }
     }
     
     func setupStatusBar() {
@@ -939,8 +936,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Command-Shift-F       Focus mode
             Command-Control-F     Full screen
             Command-= / - / 0     Zoom in, out, actual size
-            Control-Option-G      Grok Bot app
-            Command-Shift-B       Grok Bot tab
+            Control-Option-G      Switch with the Grok Bot app
+            Command-Shift-B       Open Grok Bot
             Command-Shift-K       Command palette
             Command-`             Build terminal
             Command-/             This cheat sheet
@@ -1128,9 +1125,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: Notification.Name("SpotlightQuery"), object: query)
             }
 
-        case .grokBot:
-            break
-
         case .grokipedia:
             // React-compatible input value setting + button click
             let escapedQuery = query.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
@@ -1281,7 +1275,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .grokipedia: return grokipediaWebView
         case .xTwitter: return xWebView
         case .chatX: return chatXWebView
-        case .grokBot: return grokBotWebView
         case .console: return consoleWebView
         default: return webView
         }
@@ -1314,8 +1307,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let url = URL(string: "https://x.com") {
                 xWebView.load(URLRequest(url: url))
             }
-        case .grokBot:
-            grokBotWebView.load(URLRequest(url: GrokBotWeb.home))
         default:
             if let url = URL(string: "https://grok.com") {
                 webView.load(URLRequest(url: url))
@@ -1477,34 +1468,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return wv
     }()
 
-    private func makeGrokBotWebView() -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = WKWebsiteDataStore(forIdentifier: GrokBotWeb.dataStoreID)
-        config.mediaTypesRequiringUserActionForPlayback = []
-        let prefs = WKWebpagePreferences()
-        prefs.allowsContentJavaScript = true
-        config.defaultWebpagePreferences = prefs
-
-        let wv = SilentWebView(frame: .zero, configuration: config)
-        wv.allowsBackForwardNavigationGestures = true
-        wv.allowsLinkPreview = true
-        wv.uiDelegate = self
-        wv.navigationDelegate = self
-        wv.autoresizingMask = [.width, .height]
-        wv.frame = mainContainerView.bounds
-        let chrome = GlassAppearance.solidMatteNSColor
-        wv.setValue(false, forKey: "drawsBackground")
-        wv.wantsLayer = true
-        wv.layer?.backgroundColor = chrome.cgColor
-        if #available(macOS 12.0, *) {
-            wv.underPageBackgroundColor = chrome
-        }
-        return wv
-    }
-
     @objc func showGrokBotTab(_ sender: Any?) {
-        showMainWindow(nil)
-        updateMode(to: .grokBot)
+        GrokBotSwitcher.launchOrBringForward()
     }
     
     // MARK: - Mode Switching
@@ -1573,11 +1538,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             chatXWebView.frame = mainContainerView.bounds
             mainContainerView.addSubview(chatXWebView)
             window.makeFirstResponder(chatXWebView)
-        case .grokBot:
-            grokBotWebView.frame = mainContainerView.bounds
-            mainContainerView.addSubview(grokBotWebView)
-            window.makeFirstResponder(grokBotWebView)
-            rememberURL(grokBotWebView.url)
         }
         updateWindowChrome(for: mode)
         applyStoredZoom()
@@ -1668,11 +1628,18 @@ extension AppDelegate: NSToolbarDelegate {
             })
             
             let view = NSHostingView(rootView: switcher)
-            view.frame = NSRect(x: 0, y: 0, width: 336, height: 30) // X + Chat + Grok + Build + Grokipedia (exact previous logos + words)
+            // Stay inside the titlebar. A hosting view that honors the window safe area
+            // draws the mode switcher down over grok.com's own buttons.
+            view.safeAreaRegions = []
+            view.sizingOptions = [.minSize, .intrinsicContentSize]
+            let barSize = NSSize(width: 430, height: 30)
+            view.frame = NSRect(origin: .zero, size: barSize)
+            view.wantsLayer = true
+            view.layer?.masksToBounds = true
             view.setAccessibilityLabel("Mode switcher")
-            view.frame.size.width = 430
-            
             item.view = view
+            item.minSize = barSize
+            item.maxSize = barSize
             return item
         }
         
@@ -2126,8 +2093,7 @@ extension AppDelegate: WKUIDelegate {
               let url = navigationAction.request.url else { return nil }
         let host = url.host?.lowercased() ?? ""
         let authHosts = ["grok.com", "x.ai", "x.com", "twitter.com", "google.com", "apple.com"]
-        let botSignIn = webView === grokBotWebView && GrokBotWeb.staysInApp(host)
-        let isAuth = host.isEmpty || url.scheme == "about" || botSignIn || authHosts.contains { host.contains($0) }
+        let isAuth = host.isEmpty || url.scheme == "about" || authHosts.contains { host.contains($0) }
         guard isAuth else {
             NSWorkspace.shared.open(url)
             return nil
@@ -2178,21 +2144,9 @@ extension AppDelegate: WKNavigationDelegate {
             }
         }
 
-        // Grok Bot keeps its own site and sign-in pages. Other clicked links leave the app.
-        if webView === grokBotWebView,
-           navigationAction.navigationType == .linkActivated,
-           let url = navigationAction.request.url {
-            let host = url.host?.lowercased() ?? ""
-            if !GrokBotWeb.staysInApp(host) {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel, preferences)
-                return
-            }
-        }
-
         // 1. External Link Logic
         // Open non-app links in the default browser (Safari/Chrome)
-        if webView !== grokBotWebView, let url = navigationAction.request.url, let host = url.host?.lowercased() {
+        if let url = navigationAction.request.url, let host = url.host?.lowercased() {
              // Whitelist allowed domains for main window (App + Auth providers)
              let allowedHosts = ["grok.com", "x.ai", "twitter.com", "x.com", "google.com", "accounts.google.com", "apple.com"]
              let isAllowed = allowedHosts.contains { host.contains($0) }
@@ -2280,7 +2234,7 @@ extension AppDelegate: WKNavigationDelegate {
     }
     
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if isChatTab(webView) || webView === self.webView || webView === grokipediaWebView || webView === xWebView || webView === chatXWebView || webView === grokBotWebView || (consoleWebViewLoaded && webView === consoleWebView) {
+        if isChatTab(webView) || webView === self.webView || webView === grokipediaWebView || webView === xWebView || webView === chatXWebView || (consoleWebViewLoaded && webView === consoleWebView) {
             rememberURL(webView.url)
         }
         #if DEBUG
@@ -2534,8 +2488,6 @@ extension AppDelegate: WKNavigationDelegate {
             return URL(string: "https://x.com")
         } else if webView === self.chatXWebView {
             return URL(string: "https://chat.x.com")
-        } else if webView === self.grokBotWebView {
-            return GrokBotWeb.home
         }
         return URL(string: "https://grok.com")
     }
@@ -2647,7 +2599,6 @@ struct ToolbarModeSwitcher: View {
         case .chat: return grokButtonWidth
         case .developer, .console: return buildButtonWidth
         case .grokipedia: return wikiButtonWidth
-        case .grokBot: return 0
         }
     }
 
@@ -2665,8 +2616,6 @@ struct ToolbarModeSwitcher: View {
             return (totalWidth - wikiButtonWidth * 2 - buildButtonWidth) / 2 - 2
         case .grokipedia:
             return (totalWidth - wikiButtonWidth) / 2 - 2
-        case .grokBot:
-            return 0
         }
     }
 
@@ -2683,7 +2632,6 @@ struct ToolbarModeSwitcher: View {
                 .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
                 .frame(width: thumbWidth, height: buttonHeight)
                 .offset(x: thumbOffset)
-                .opacity(modeState.currentMode == .grokBot ? 0 : 1)
                 .animation(.snappy(duration: 0.2), value: modeState.currentMode)
 
             // Layer 3: Labels (Top) - Icons + Labels
@@ -2779,16 +2727,18 @@ struct ToolbarModeSwitcher: View {
         }
         .frame(width: totalWidth, height: buttonHeight + 4)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius + 2, style: .continuous))
-        Button(action: { onModeChange(.grokBot) }) {
+        Button(action: { GrokBotSwitcher.launchOrBringForward() }) {
             Text("Grok Bot")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(modeState.currentMode == .grokBot ? (colorScheme == .dark ? .white : .black) : .secondary)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
                 .frame(height: buttonHeight)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Grok Bot")
-        .help("Grok Bot · x.ai/bot")
+        .help("Open the Grok Bot app")
         }
+        .fixedSize()
+        .ignoresSafeArea()
     }
 }
