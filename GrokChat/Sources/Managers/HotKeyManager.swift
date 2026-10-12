@@ -272,8 +272,11 @@ enum GrokBotSwitcher {
     /// a user paste a grok.com/x.ai page if they ever want one).
     private static let allowedURLHosts: Set<String> = ["grok.com", "x.ai"]
 
-    /// Default routines/usage deep links.
-    static let defaultRoutinesURL = "grokbot://app/v1/sidebar?tab=routines"
+    /// Default routines/usage deep links. Routines points at the App bot (where
+    /// routines live): `grokbot://app/v1/sidebar?tab=routines` does nothing when
+    /// opened from outside Grok Bot, so the item opens the App agent instead and
+    /// then brings the app forward (see `openRoutines`).
+    static let defaultRoutinesURL = "grokbot://app/v1/agent?id=6a759f88-706f-461c-b19f-0b2b3f3eb317"
     static let defaultUsageURL = "grokbot://app/v1/settings?id=usage"
 
     /// Kevin's bots, seeded as the default switcher list. Editable in Settings.
@@ -365,9 +368,13 @@ enum GrokBotSwitcher {
         }
     }
 
-    /// Routines shortcut — opens the routines view via `grokbot://app/v1/sidebar?tab=routines`.
+    /// Routines shortcut — opens the App bot (where routines live) via
+    /// `grokbot://app/v1/agent?id=…` and then brings Grok Bot forward. The old
+    /// `sidebar?tab=routines` deep link did nothing when opened from outside the
+    /// app, so we open the agent and explicitly foreground it.
     static func openRoutines() {
         openDeepLink(forKey: routinesURLKey, fallback: defaultRoutinesURL)
+        launchOrBringForward()
     }
 
     /// "Open usage" action — opens the usage screen via `grokbot://app/v1/settings?id=usage`.
