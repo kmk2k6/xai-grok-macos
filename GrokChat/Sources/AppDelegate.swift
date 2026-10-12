@@ -82,6 +82,37 @@ class SilentWebView: WKWebView {
         // Pass all key events to the web content
         super.keyDown(with: event)
     }
+
+    private var sendToBotMenuToken: UUID?
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        let token = UUID()
+        sendToBotMenuToken = token
+        guard let host = url?.host?.lowercased(),
+              host == "grok.com" || host.hasSuffix(".grok.com") else { return }
+        evaluateJavaScript("window.__grokSendToBotText || ''") { [weak self, weak menu] result, _ in
+            let text = (result as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            DispatchQueue.main.async {
+                guard let self, let menu, self.sendToBotMenuToken == token, !text.isEmpty else { return }
+                menu.items.filter { $0.title == "Send to Grok Bot" }.forEach { menu.removeItem($0) }
+                let item = NSMenuItem(
+                    title: "Send to Grok Bot",
+                    action: #selector(AppDelegate.sendArmedTextToGrokBot(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = NSApp.delegate as? AppDelegate
+                item.representedObject = text
+                menu.addItem(.separator())
+                menu.addItem(item)
+            }
+        }
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        sendToBotMenuToken = nil
+        super.didCloseMenu(menu, with: event)
+    }
 }
 
 // Shared observable state for mode switching
@@ -194,6 +225,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Route web “Grok Build” promo CTAs into the native harness.
         config.userContentController.add(self, name: WebToBuildBridge.messageHandlerName)
         config.userContentController.add(self, name: GrokUsageBadge.messageHandlerName)
+        config.userContentController.add(self, name: SendToGrokBot.handlerName)
         GrokUsageBadge.installUserScript(into: config.userContentController)
         
         // Use SilentWebView to prevent keyboard beeps when typing special characters
@@ -1483,6 +1515,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showGrokBotTab(_ sender: Any?) {
         GrokBotSwitcher.launchOrBringForward()
     }
+
+    @objc func sendArmedTextToGrokBot(_ sender: Any?) {
+        let text = (sender as? NSMenuItem)?.representedObject as? String ?? ""
+        SendToGrokBot.copyAndReveal(text)
+    }
     
     // MARK: - Mode Switching
     
@@ -1986,6 +2023,8 @@ extension AppDelegate: WKScriptMessageHandler {
         } else if message.name == GrokUsageBadge.messageHandlerName {
             // Extra grok.com tabs register this same handler from GrokChatTabs.
             GrokUsageBadge.handleScriptMessage(message, in: message.webView ?? webView)
+        } else if message.name == SendToGrokBot.handlerName {
+            SendToGrokBot.handle(message)
         }
     }
 }
@@ -2255,6 +2294,7 @@ extension AppDelegate: WKNavigationDelegate {
         injectGrokBuildNativeHookIfNeeded(in: webView)
         if isChatTab(webView) || webView === self.webView {
             GrokUsageBadge.injectIfNeeded(into: webView)
+            SendToGrokBot.injectIfNeeded(into: webView)
             noteChatTabTitle(for: webView)
             if webView === self.webView {
                 deliverPendingQuickAskIfNeeded(in: webView)

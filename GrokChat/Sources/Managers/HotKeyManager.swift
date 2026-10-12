@@ -10,6 +10,7 @@
 
 import Cocoa
 import Carbon
+import WebKit
 
 protocol HotKeyDelegate: AnyObject {
     func hotKeyTriggered()
@@ -282,4 +283,184 @@ enum GrokBotSwitcher {
             NSWorkspace.shared.open(downloadURL)
         }
     }
+}
+
+/// Copies a Grok answer or code block and brings the Grok Bot app forward. Kevin pastes and sends.
+enum SendToGrokBot {
+    static let handlerName = "grokSendToBot"
+    static let preface = "Review, build and install this on my Mac:"
+
+    static func copyAndReveal(_ content: String) {
+        let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        let clip = preface + "\n\n" + body
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(clip, forType: .string)
+        GrokBotSwitcher.launchOrBringForward()
+    }
+
+    static func handle(_ message: WKScriptMessage) {
+        let text: String?
+        if let body = message.body as? [String: Any] {
+            text = body["text"] as? String
+        } else {
+            text = message.body as? String
+        }
+        guard let text else { return }
+        DispatchQueue.main.async { copyAndReveal(text) }
+    }
+
+    static func injectIfNeeded(into webView: WKWebView) {
+        guard let host = webView.url?.host?.lowercased(),
+              host == "grok.com" || host.hasSuffix(".grok.com") else { return }
+        webView.evaluateJavaScript(pageScript, completionHandler: nil)
+    }
+
+    private static let pageScript = """
+    (function() {
+      if (window.__grokSendToBotInstalled) return;
+      window.__grokSendToBotInstalled = true;
+      window.__grokSendToBotText = "";
+
+      function deliver(text) {
+        text = (text || "").trim();
+        if (!text) return;
+        try {
+          window.webkit.messageHandlers.grokSendToBot.postMessage({ text: text });
+        } catch (e) {}
+      }
+
+      function plain(el) {
+        if (!el) return "";
+        var clone = el.cloneNode(true);
+        var junk = clone.querySelectorAll(".grok-send-bot-btn, button, textarea, nav");
+        for (var i = 0; i < junk.length; i++) junk[i].remove();
+        return (clone.innerText || clone.textContent || "").trim();
+      }
+
+      function codeText(pre) {
+        var code = pre.querySelector("code");
+        return plain(code || pre);
+      }
+
+      function answerText(root) {
+        var content = root;
+        if (!root.matches || !root.matches(".response-content-markdown")) {
+          var markdown = root.querySelector(".response-content-markdown");
+          if (markdown) content = markdown;
+          else {
+            var assistant = root.querySelector("[data-testid='assistant-message'], .message-bubble.assistant");
+            if (assistant) content = assistant;
+          }
+        }
+        return plain(content);
+      }
+
+      function inComposer(el) {
+        return !!(el && el.closest && el.closest("[data-testid='chat-input'], textarea"));
+      }
+
+      function userOnly(el) {
+        if (!el || !el.closest) return false;
+        if (el.closest("[data-testid='user-message']")) return true;
+        if (el.id && el.id.indexOf("response-") === 0 && el.classList.contains("items-end")) {
+          if (!el.querySelector("[data-testid='assistant-message'], .message-bubble.assistant, .response-content-markdown")) return true;
+        }
+        return false;
+      }
+
+      function targetText(node) {
+        if (!node || !node.closest || inComposer(node)) return "";
+        var pre = node.closest("pre");
+        if (pre && !inComposer(pre)) {
+          var code = codeText(pre);
+          if (code) return code;
+        }
+        var answer = node.closest("[data-testid='assistant-message'], .message-bubble.assistant, .response-content-markdown, div[id^='response-']");
+        if (!answer || userOnly(answer) || inComposer(answer)) return "";
+        return answerText(answer);
+      }
+
+      function ensureStyle() {
+        if (document.getElementById("grok-send-bot-style")) return;
+        var style = document.createElement("style");
+        style.id = "grok-send-bot-style";
+        style.textContent = [
+          ".grok-send-bot-btn{",
+          "position:absolute;top:6px;right:8px;z-index:30;",
+          "margin:0;padding:4px 8px;border-radius:6px;cursor:pointer;",
+          "border:1px solid rgba(255,255,255,.22);background:rgba(18,18,18,.9);color:#fff;",
+          "font:600 11px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;",
+          "opacity:0;pointer-events:none;",
+          "}",
+          ".grok-send-bot-btn.is-code{right:auto;left:8px;top:8px;}",
+          ".grok-send-bot-host:hover > .grok-send-bot-btn,.grok-send-bot-btn:focus{",
+          "opacity:1;pointer-events:auto;",
+          "}"
+        ].join("");
+        (document.head || document.documentElement).appendChild(style);
+      }
+
+      function hasOwnButton(host) {
+        for (var child = host.firstElementChild; child; child = child.nextElementSibling) {
+          if (child.classList && child.classList.contains("grok-send-bot-btn")) return true;
+        }
+        return false;
+      }
+
+      function attach(host, kind) {
+        if (!host || hasOwnButton(host)) return;
+        var text = kind === "code" ? codeText(host) : answerText(host);
+        if (!text) return;
+        ensureStyle();
+        if (window.getComputedStyle(host).position === "static") host.style.position = "relative";
+        host.classList.add("grok-send-bot-host");
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "grok-send-bot-btn" + (kind === "code" ? " is-code" : "");
+        button.textContent = "Send to Grok Bot";
+        button.setAttribute("aria-label", "Send to Grok Bot");
+        button.addEventListener("click", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          deliver(kind === "code" ? codeText(host) : answerText(host));
+        }, true);
+        host.appendChild(button);
+      }
+
+      function scan() {
+        var answers = [];
+        var nodes = document.querySelectorAll("[data-testid='assistant-message'], .message-bubble.assistant, .response-content-markdown, div[id^='response-']");
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          if (userOnly(node) || inComposer(node)) continue;
+          var nested = false;
+          for (var j = 0; j < answers.length; j++) {
+            if (answers[j].contains(node)) { nested = true; break; }
+            if (node.contains(answers[j])) { answers.splice(j, 1); j--; }
+          }
+          if (!nested) answers.push(node);
+        }
+        for (var a = 0; a < answers.length; a++) attach(answers[a], "answer");
+        var blocks = document.querySelectorAll("pre");
+        for (var b = 0; b < blocks.length; b++) {
+          if (inComposer(blocks[b])) continue;
+          attach(blocks[b], "code");
+        }
+      }
+
+      document.addEventListener("contextmenu", function(event) {
+        var node = event.target && event.target.nodeType === 1 ? event.target : (event.target && event.target.parentElement);
+        window.__grokSendToBotText = targetText(node);
+      }, true);
+
+      scan();
+      var timer = null;
+      var observer = new MutationObserver(function() {
+        if (timer) return;
+        timer = setTimeout(function() { timer = null; scan(); }, 250);
+      });
+      try { observer.observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+    })();
+    """
 }

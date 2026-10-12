@@ -102,6 +102,7 @@ extension AppDelegate {
         config.defaultWebpagePreferences = prefs
         config.userContentController.add(self, name: WebToBuildBridge.messageHandlerName)
         config.userContentController.add(self, name: GrokUsageBadge.messageHandlerName)
+        config.userContentController.add(self, name: SendToGrokBot.handlerName)
         GrokUsageBadge.installUserScript(into: config.userContentController)
 
         let wv = SilentWebView(frame: .zero, configuration: config)

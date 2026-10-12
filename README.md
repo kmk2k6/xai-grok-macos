@@ -77,6 +77,7 @@ The bolt in the menu bar shows the usage percent reported by the page, recent gr
 - If that app is not installed, Grok shows “Grok Bot isn't installed” and a download link to [x.ai/bot](https://x.ai/bot).
 - **⌃⌥G** still switches between Grok and the Grok Bot app. The menu bar extra does too. If Grok Bot is already the frontmost app, the hotkey comes back to Grok.
 - Settings also offers **⌃⌥B** and **⌥⇧G**. If Grok Bot is not in `/Applications` or `~/Applications`, Settings has a path field and a Choose… button.
+- Hover **Send to Grok Bot** on a Grok answer or code block, or right-click that content and choose **Send to Grok Bot**. Grok copies `Review, build and install this on my Mac:` plus the content, then brings the Grok Bot app forward. Paste and send it yourself.
 
 ### 🖥️ Build terminal
 Build includes a live shell powered by SwiftTerm:
