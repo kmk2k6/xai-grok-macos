@@ -54,7 +54,7 @@ Summon a prompt from any app:
 - Relaunch restores the last mode, the last allowed URL, and the autosaved window frame.
 
 ### 📊 Menu bar usage
-The bolt in the menu bar shows the usage percent reported by the page, recent grok.com chats, New Chat, Quick Ask, and Grok Bot.
+The bolt in the menu bar shows the usage percent reported by the page, recent grok.com chats, New Chat, Quick Ask, and Grok Bot. Every 15 minutes, and whenever Grok becomes active, a hidden offscreen page opens Settings → Usage with the same login as the main window, reads the weekly percent, saves it, and closes. That refresh does not change the page on screen, and it waits while the Mac is asleep or offline.
 - A weekly sparkline says whether you are on pace or ahead of an even weekly pace. Samples stay on this Mac for 14 days.
 - The pace warning is off until you enable it in Settings. It fires at most once a week, and only when usage is more than 15 points ahead of even pacing.
 - An optional Dock badge shows the same percent.

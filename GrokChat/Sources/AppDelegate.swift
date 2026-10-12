@@ -355,6 +355,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize Input Window (hidden by default)
         inputWindow = InputWindow()
         restoreLastSession()
+        UsageBoltAutoRefresh.shared.start { [weak self] in
+            self?.grokWebViewsForUsageBolt() ?? []
+        }
+    }
+
+    /// grok.com pages whose bolt label can update. The hidden refresh does not navigate these.
+    func grokWebViewsForUsageBolt() -> [WKWebView] {
+        var views = chatTabs.map(\.webView)
+        if !views.contains(where: { $0 === webView }) {
+            views.append(webView)
+        }
+        return views
     }
 
     private static let sessionModeKey = "grok.lastMode"
@@ -2455,6 +2467,7 @@ extension AppDelegate: WKNavigationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         GrokAskService.shared.consumeIfPresent()
+        UsageBoltAutoRefresh.shared.refreshBecauseActive()
     }
 
     private func injectGrokBuildNativeHookIfNeeded(in webView: WKWebView) {

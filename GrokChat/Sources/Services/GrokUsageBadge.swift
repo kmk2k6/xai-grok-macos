@@ -3,8 +3,8 @@
 //  Grok for Mac
 //
 //  Adds a compact usage bolt inline to the right of the grok.com sidebar
-//  profile name. Auto-refreshes usage percentage on a timer and page load
-//  by learning and re-issuing grok.com's same-origin usage endpoint.
+//  profile name. A hidden offscreen web view re-reads Settings > Usage on a
+//  timer and when the app becomes active. The visible page is left alone.
 //  Clicking shows a native NSPopover with usage details, while Option-click
 //  or Right-click opens Grok's settings Usage tab directly.
 //
@@ -15,6 +15,7 @@ import SwiftUI
 import AppKit
 import Intents
 import UserNotifications
+import Network
 
 extension Notification.Name {
     static let grokUsagePercentDidChange = Notification.Name("grokUsagePercentDidChange")
@@ -223,13 +224,19 @@ enum GrokUsageBadge {
             )
         } else if action == "usageUpdated" {
             if let percent = body["percent"] as? Int {
-                UserDefaults.standard.set(percent, forKey: percentStorageKey)
-                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: updatedAtStorageKey)
-                UsagePaceStore.record(percent: percent)
-                NotificationCenter.default.post(name: .grokUsagePercentDidChange, object: percent)
-                checkAndNotifyUsageCrossing(percent: percent)
+                storeParsedPercent(percent)
             }
         }
+    }
+
+    /// Saves a weekly percent that the Settings > Usage parser already accepted.
+    static func storeParsedPercent(_ percent: Int) {
+        guard (0...100).contains(percent) else { return }
+        UserDefaults.standard.set(percent, forKey: percentStorageKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: updatedAtStorageKey)
+        UsagePaceStore.record(percent: percent)
+        NotificationCenter.default.post(name: .grokUsagePercentDidChange, object: percent)
+        checkAndNotifyUsageCrossing(percent: percent)
     }
 
     static func showPopover(
@@ -699,6 +706,37 @@ enum GrokUsageBadge {
 
     """
 
+    /// bolt-fix-2 weekly parser. The visible bolt and the hidden refresh both use this copy.
+    fileprivate static let weeklyPercentParserJavaScript = """
+          function weeklyPercentFromUsagePanel(text) {
+            if (!text) return null;
+            var normalized = String(text).replace(/(\\d)\\s+(?=[\\d.])/g, "$1").replace(/(\\.)\\s+(?=\\d)/g, "$1");
+            var start = normalized.search(/weekly\\s+supergrok\\s+limit/i);
+            if (start < 0) return null;
+            var rest = normalized.slice(start);
+            var end = rest.search(/extra usage|additional credits|buy credits/i);
+            var section = end > 0 ? rest.slice(0, end) : rest.slice(0, 800);
+            var headline = section.match(/(\\d{1,3}(?:\\.\\d+)?)\\s*%\\s*used/i);
+            if (!headline) headline = section.match(/\\bused\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*%/i);
+            if (headline) {
+              var headlineValue = Math.round(parseFloat(headline[1]));
+              if (headlineValue >= 0 && headlineValue <= 100) return headlineValue;
+            }
+            var percentRe = /(\\d{1,3}(?:\\.\\d+)?)\\s*%/g;
+            var sum = 0;
+            var count = 0;
+            var found;
+            while ((found = percentRe.exec(section)) !== null) {
+              var part = Math.round(parseFloat(found[1]));
+              if (part < 0 || part > 100) continue;
+              sum += part;
+              count += 1;
+            }
+            if (!count || sum > 100) return null;
+            return sum;
+          }
+"""
+
     private static func makeInjectorJavaScript(refreshSeconds: Int) -> String {
         return """
 
@@ -834,33 +872,7 @@ enum GrokUsageBadge {
             return true;
           }
 
-          function weeklyPercentFromUsagePanel(text) {
-            if (!text) return null;
-            var normalized = String(text).replace(/(\\d)\\s+(?=[\\d.])/g, "$1").replace(/(\\.)\\s+(?=\\d)/g, "$1");
-            var start = normalized.search(/weekly\\s+supergrok\\s+limit/i);
-            if (start < 0) return null;
-            var rest = normalized.slice(start);
-            var end = rest.search(/extra usage|additional credits|buy credits/i);
-            var section = end > 0 ? rest.slice(0, end) : rest.slice(0, 800);
-            var headline = section.match(/(\\d{1,3}(?:\\.\\d+)?)\\s*%\\s*used/i);
-            if (!headline) headline = section.match(/\\bused\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*%/i);
-            if (headline) {
-              var headlineValue = Math.round(parseFloat(headline[1]));
-              if (headlineValue >= 0 && headlineValue <= 100) return headlineValue;
-            }
-            var percentRe = /(\\d{1,3}(?:\\.\\d+)?)\\s*%/g;
-            var sum = 0;
-            var count = 0;
-            var found;
-            while ((found = percentRe.exec(section)) !== null) {
-              var part = Math.round(parseFloat(found[1]));
-              if (part < 0 || part > 100) continue;
-              sum += part;
-              count += 1;
-            }
-            if (!count || sum > 100) return null;
-            return sum;
-          }
+          \(weeklyPercentParserJavaScript)
 
           function usagePercentFromText(text) {
             var weekly = weeklyPercentFromUsagePanel(text);
@@ -1238,6 +1250,426 @@ enum GrokUsageBadge {
           }
         })();
 
+        """
+    }
+}
+
+/// Offscreen host for the usage refresh. It cannot become key, so it does not steal the visible window.
+final class UsageBoltOffscreenWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+// MARK: - Hidden Settings > Usage refresh
+
+/// Loads grok.com Settings > Usage in an offscreen web view that shares the main login store.
+/// The visible grok.com page is not navigated. The hidden view is closed after each attempt.
+final class UsageBoltAutoRefresh: NSObject, WKNavigationDelegate, WKUIDelegate {
+    static let shared = UsageBoltAutoRefresh()
+
+    static let refreshInterval: TimeInterval = 15 * 60
+    /// Probes of one hidden page. A cycle ends when one succeeds or this many have run.
+    static let maxProbeAttempts = 6
+    /// Full loads of the usage URL in one cycle, including the first.
+    static let maxLoads = 2
+    /// Collapses a burst of become-active notifications. The 15-minute timer is unaffected.
+    static let activationBurstGap: TimeInterval = 20
+
+    private let usageURL = URL(string: "https://grok.com/?_s=usage")!
+    private let probeDelays: [TimeInterval] = [0.8, 1.8, 3.2, 5.0, 7.5, 10.5]
+    private let networkQueue = DispatchQueue(label: "grok.usage-bolt.network")
+
+    private var visibleWebViews: () -> [WKWebView] = { [] }
+    private var started = false
+    private var timer: Timer?
+    private var pathMonitor: NWPathMonitor?
+    private var sawPath = false
+    private var isOnline = false
+    private var isAsleep = false
+    private var pendingRefresh = false
+    private var inFlight = false
+    private var generation = 0
+    private var loads = 0
+    private var probesScheduled = false
+    private var didForceUsageURL = false
+    private var lastActivationAt: Date?
+    private var sleepObservers: [NSObjectProtocol] = []
+    private var webView: WKWebView?
+    private var hostWindow: NSWindow?
+
+    func start(visibleWebViews: @escaping () -> [WKWebView]) {
+        self.visibleWebViews = visibleWebViews
+        guard !started else { return }
+        started = true
+
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let online = path.status == .satisfied
+                let first = !self.sawPath
+                self.sawPath = true
+                self.isOnline = online
+                if first, self.pendingRefresh {
+                    self.pendingRefresh = false
+                    self.begin(reason: "deferred")
+                }
+            }
+        }
+        monitor.start(queue: networkQueue)
+        pathMonitor = monitor
+
+        let center = NSWorkspace.shared.notificationCenter
+        sleepObservers = [
+            center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.isAsleep = true
+                if self.inFlight { self.finish(percent: nil) }
+            },
+            center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.isAsleep = false
+            }
+        ]
+
+        let timer = Timer(timeInterval: Self.refreshInterval, repeats: true) { [weak self] _ in
+            self?.begin(reason: "interval")
+        }
+        timer.tolerance = 30
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        refreshBecauseActive()
+    }
+
+    /// Refresh because Grok became the active app. Skipped while a cycle is already running.
+    func refreshBecauseActive() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let lastActivationAt, Date().timeIntervalSince(lastActivationAt) < Self.activationBurstGap {
+                return
+            }
+            self.lastActivationAt = Date()
+            self.begin(reason: "active")
+        }
+    }
+
+    private func begin(reason: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if !sawPath {
+            pendingRefresh = true
+            return
+        }
+        if isAsleep || !isOnline || inFlight { return }
+        inFlight = true
+        generation += 1
+        loads = 0
+        probesScheduled = false
+        didForceUsageURL = false
+        openHiddenPage()
+        let token = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self, self.inFlight, self.generation == token else { return }
+            self.finish(percent: nil)
+        }
+        _ = reason
+    }
+
+    private func openHiddenPage() {
+        tearDownWebView()
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = prefs
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
+
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 900), configuration: config)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.setValue(false, forKey: "drawsBackground")
+
+        let window = UsageBoltOffscreenWindow(
+            contentRect: NSRect(x: -20000, y: -20000, width: 1280, height: 900),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.isExcludedFromWindowsMenu = true
+        window.ignoresMouseEvents = true
+        window.hasShadow = false
+        window.sharingType = .none
+        window.collectionBehavior = [.ignoresCycle, .transient, .stationary]
+        window.contentView = webView
+        let keyWindow = NSApp.keyWindow
+        window.orderFrontRegardless()
+        keyWindow?.orderFront(nil)
+
+        self.webView = webView
+        hostWindow = window
+        loadUsagePage()
+    }
+
+    private func loadUsagePage() {
+        guard inFlight, let webView else { return }
+        loads += 1
+        if loads > Self.maxLoads {
+            finish(percent: nil)
+            return
+        }
+        probesScheduled = false
+        webView.load(URLRequest(url: usageURL))
+    }
+
+    private func scheduleProbes() {
+        guard !probesScheduled else { return }
+        probesScheduled = true
+        let token = generation
+        for (index, delay) in probeDelays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.probe(index: index, token: token)
+            }
+        }
+    }
+
+    private func probe(index: Int, token: Int) {
+        guard inFlight, generation == token, index < Self.maxProbeAttempts, let webView else { return }
+        if isAsleep || !isOnline {
+            finish(percent: nil)
+            return
+        }
+        let script = Self.probeScript(shouldOpen: index < 3)
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            DispatchQueue.main.async {
+                guard let self, self.inFlight, self.generation == token else { return }
+                if let percent = self.percent(from: result) {
+                    self.finish(percent: percent)
+                } else if index + 1 >= Self.maxProbeAttempts {
+                    self.finish(percent: nil)
+                }
+            }
+        }
+    }
+
+    private func percent(from result: Any?) -> Int? {
+        guard let number = result as? NSNumber else { return nil }
+        let value = number.intValue
+        return (0...100).contains(value) ? value : nil
+    }
+
+    private func finish(percent: Int?) {
+        guard inFlight else { return }
+        inFlight = false
+        generation += 1
+        if let percent {
+            GrokUsageBadge.storeParsedPercent(percent)
+            publishToVisibleBolts(percent)
+        }
+        tearDownWebView()
+    }
+
+    /// Updates the bolt already drawn on grok.com. Does not navigate or click that page.
+    private func publishToVisibleBolts(_ percent: Int) {
+        let script = """
+        (function() {
+          if (window.__grokUsageState) {
+            window.__grokUsageState.percent = \(percent);
+            window.__grokUsageState.updatedAt = Date.now();
+          }
+          if (typeof window.__grokUsageBoltRender === "function") window.__grokUsageBoltRender();
+        })();
+        """
+        for view in visibleWebViews() {
+            guard let host = view.url?.host?.lowercased(),
+                  host == "grok.com" || host.hasSuffix(".grok.com") else { continue }
+            view.evaluateJavaScript(script, completionHandler: nil)
+        }
+    }
+
+    private func tearDownWebView() {
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        hostWindow?.orderOut(nil)
+        hostWindow?.contentView = nil
+        hostWindow?.close()
+        webView = nil
+        hostWindow = nil
+    }
+
+    private static func isGrokHost(_ url: URL?) -> Bool {
+        guard let host = url?.host?.lowercased() else { return false }
+        return host == "grok.com" || host.hasSuffix(".grok.com")
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard inFlight, webView === self.webView, Self.isGrokHost(webView.url) else { return }
+        let onUsage = URLComponents(url: webView.url ?? usageURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains { $0.name == "_s" && $0.value == "usage" } ?? false
+        if !onUsage && !didForceUsageURL {
+            didForceUsageURL = true
+            webView.evaluateJavaScript("window.location.assign('https://grok.com/?_s=usage')", completionHandler: nil)
+            return
+        }
+        scheduleProbes()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        noteLoadFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        noteLoadFailure(error)
+    }
+
+    private func noteLoadFailure(_ error: Error) {
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
+        guard inFlight else { return }
+        if probesScheduled || loads >= Self.maxLoads {
+            finish(percent: nil)
+            return
+        }
+        loadUsagePage()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        nil
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if navigationAction.targetFrame == nil {
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    /// Reads the open usage panel with the bolt-fix-2 parser. `shouldOpen` asks the page to show Usage first.
+    private static func probeScript(shouldOpen: Bool) -> String {
+        let openFlag = shouldOpen ? "true" : "false"
+        return """
+        (function() {
+          \(GrokUsageBadge.weeklyPercentParserJavaScript)
+          function visible(el) {
+            if (!el || !el.isConnected) return false;
+            var style = window.getComputedStyle(el);
+            var rect = el.getBoundingClientRect();
+            return style.display !== "none" && style.visibility !== "hidden" &&
+              parseFloat(style.opacity || "1") > 0 && rect.width > 0 && rect.height > 0;
+          }
+          function textOf(el) {
+            if (!el) return "";
+            return ((el.innerText || el.textContent || "") + "").replace(/\\s+/g, " ").trim();
+          }
+          function clickElement(el) {
+            if (!el) return false;
+            try {
+              el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+            } catch (e) {
+              try { el.click(); } catch (ignored) {}
+            }
+            return true;
+          }
+          function clickUsageNav() {
+            var buttons = document.querySelectorAll("[data-settings-nav-button], button, a, [role='button']");
+            for (var i = 0; i < buttons.length; i++) {
+              if (!visible(buttons[i])) continue;
+              var label = textOf(buttons[i]).toLowerCase();
+              if (label !== "usage") continue;
+              var selected = buttons[i].getAttribute("data-settings-nav-selected");
+              if (selected == null) clickElement(buttons[i]);
+              return true;
+            }
+            return false;
+          }
+          function fnSource(fn) {
+            try { return Function.prototype.toString.call(fn); } catch (e) { return ""; }
+          }
+          function snapshotFromHook(hook) {
+            var queue = hook && hook.queue;
+            if (queue && typeof queue.getSnapshot === "function") {
+              try { return queue.getSnapshot(); } catch (e) { return null; }
+            }
+            if (hook && hook.memoizedState && typeof hook.memoizedState.getSnapshot === "function") {
+              try { return hook.memoizedState.getSnapshot(); } catch (e2) { return null; }
+            }
+            return null;
+          }
+          function openUsagePanel() {
+            var setTab = null;
+            var setOpen = null;
+            var fiberKey = null;
+            var seed = document.querySelector("#__next") || document.body;
+            var nodes = [seed].concat(Array.prototype.slice.call(document.querySelectorAll("button, div")));
+            for (var i = 0; i < nodes.length && !fiberKey; i++) {
+              var el = nodes[i];
+              if (!el) continue;
+              var keys = Object.keys(el);
+              for (var k = 0; k < keys.length; k++) {
+                if (keys[k].indexOf("__reactFiber$") === 0 || keys[k].indexOf("__reactInternalInstance$") === 0) {
+                  fiberKey = keys[k];
+                  seed = el;
+                  break;
+                }
+              }
+            }
+            if (fiberKey && seed[fiberKey]) {
+              var root = seed[fiberKey];
+              var up = 0;
+              while (root.return && up++ < 80) root = root.return;
+              var stack = [root];
+              var seen = 0;
+              while (stack.length && seen++ < 8000 && (!setTab || !setOpen)) {
+                var fiber = stack.pop();
+                if (!fiber) continue;
+                if (fiber.child) stack.push(fiber.child);
+                if (fiber.sibling) stack.push(fiber.sibling);
+                var hook = fiber.memoizedState;
+                var hops = 0;
+                while (hook && hops++ < 60 && (!setTab || !setOpen)) {
+                  var snap = snapshotFromHook(hook);
+                  if (typeof snap === "function") {
+                    var src = fnSource(snap);
+                    if (!setTab && src.indexOf("{tab:") !== -1 && src.indexOf("#e") !== -1) setTab = snap;
+                    else if (!setOpen && src.indexOf("open:") !== -1 && src.indexOf("{tab:") === -1 && src.indexOf("#e") !== -1) setOpen = snap;
+                  }
+                  hook = hook.next;
+                }
+              }
+            }
+            if (setTab && setOpen) {
+              try { setTab("usage"); setOpen(true); } catch (e) {}
+            }
+            clickUsageNav();
+          }
+          function readWeekly() {
+            var nodes = document.querySelectorAll("[role='dialog'], [aria-modal='true'], [data-state='open']");
+            for (var i = 0; i < nodes.length; i++) {
+              if (!visible(nodes[i])) continue;
+              var weekly = weeklyPercentFromUsagePanel(textOf(nodes[i]));
+              if (weekly != null) return weekly;
+            }
+            return weeklyPercentFromUsagePanel(textOf(document.body));
+          }
+          if (\(openFlag)) openUsagePanel();
+          var weekly = readWeekly();
+          if (weekly == null) return null;
+          try {
+            localStorage.setItem("grok.usageBadge.percent", String(weekly));
+            localStorage.setItem("grok.usageBadge.updatedAt", String(Date.now()));
+          } catch (e) {}
+          return weekly;
+        })();
         """
     }
 }
