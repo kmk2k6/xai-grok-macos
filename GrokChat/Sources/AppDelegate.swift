@@ -2843,7 +2843,6 @@ struct ToolbarModeSwitcher: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
         ZStack {
             // Layer 1: Track (Bottom) - with proper clip
             RoundedRectangle(cornerRadius: cornerRadius + 2, style: .continuous)
@@ -2950,17 +2949,6 @@ struct ToolbarModeSwitcher: View {
         }
         .frame(width: totalWidth, height: buttonHeight + 4)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius + 2, style: .continuous))
-        Button(action: { GrokBotSwitcher.launchOrBringForward() }) {
-            Text("Grok Bot")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .frame(height: buttonHeight)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Grok Bot")
-        .help("Open the Grok Bot app")
-        }
         .fixedSize()
         .ignoresSafeArea()
     }
