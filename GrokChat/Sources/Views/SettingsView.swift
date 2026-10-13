@@ -241,7 +241,7 @@ struct GeneralSettingsView: View {
             
             Section {
                 Toggle("Usage alerts at 80% and 95%", isOn: $settingsManager.usageNotificationsEnabled)
-                Text("Notify once when Grok usage crosses 80% and 95% per reset window.")
+                Text("Notify once when Grok usage (Grok, Grok Bot & Terminal) crosses 80% and 95% per reset window.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } header: {

@@ -1791,10 +1791,11 @@ enum UsagePaceStore {
     /// "72% used · ahead of pace · Resets in 2 days (Mon)".
     static func tooltip(percent: Int?, at date: Date = Date()) -> String {
         let reset = resetDescription(at: date)
+        let scope = "Grok, Grok Bot & Terminal"
         guard let percent else {
-            return "Usage unknown · \(reset)"
+            return "Usage unknown · \(scope) · \(reset)"
         }
-        return "\(percent)% used · \(paceState(percent: percent, at: date).label) · \(reset)"
+        return "\(percent)% used · \(scope) · \(paceState(percent: percent, at: date).label) · \(reset)"
     }
 
     private static func load() -> [Sample] {

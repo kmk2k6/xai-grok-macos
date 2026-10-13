@@ -606,12 +606,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         if let button = statusItem.button {
-            let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Grok usage")
+            let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Grok usage (unified: Grok, Grok Bot and Terminal)")
             bolt?.isTemplate = true
             button.image = bolt
             button.imagePosition = .imageLeading
             button.title = ""
-            button.setAccessibilityLabel("Grok usage")
+            button.setAccessibilityLabel("Grok usage (unified: Grok, Grok Bot and Terminal)")
         }
         
         let menu = NSMenu()
@@ -668,10 +668,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .font: font,
                 .foregroundColor: NSColor.labelColor
             ]))
-            button.setAccessibilityLabel("Grok usage \(percent) percent, handoff \(handoff)")
+            button.setAccessibilityLabel("Grok usage (unified) \(percent) percent, handoff \(handoff)")
         } else {
             title.append(NSAttributedString(string: " ", attributes: [.font: font]))
-            button.setAccessibilityLabel("Grok usage, handoff \(handoff)")
+            button.setAccessibilityLabel("Grok usage (unified), handoff \(handoff)")
         }
         title.append(NSAttributedString(string: "●", attributes: [
             .font: NSFont.systemFont(ofSize: 9),
@@ -686,17 +686,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let menu = statusItem?.menu else { return }
         menu.removeAllItems()
         if let percent = UserDefaults.standard.object(forKey: GrokUsageBadge.percentStorageKey) as? Int {
-            let usage = NSMenuItem(title: "Usage \(percent)%", action: nil, keyEquivalent: "")
-            usage.isEnabled = false
+            let usage = NSMenuItem(title: "Usage \(percent)% — Grok, Grok Bot & Terminal", action: #selector(openGrokUsage(_:)), keyEquivalent: "")
+            usage.target = self
             menu.addItem(usage)
         } else {
-            let usage = NSMenuItem(title: "Usage unavailable", action: nil, keyEquivalent: "")
-            usage.isEnabled = false
+            let usage = NSMenuItem(title: "Usage unavailable — Grok, Grok Bot & Terminal", action: #selector(openGrokUsage(_:)), keyEquivalent: "")
+            usage.target = self
             menu.addItem(usage)
         }
-        // Opens the Grok Bot usage screen directly via its grokbot:// deep link
-        // (never a fabricated number). The grok.com percent row above is untouched.
-        let grokBotUsage = NSMenuItem(title: "Open Grok Bot usage", action: #selector(openGrokBotUsage(_:)), keyEquivalent: "")
+        // One shared Grok usage pool backs Grok, Grok Bot and the Terminal, so
+        // this single number is the unified meter — there is no separate Grok Bot
+        // meter. The item below just opens the Grok Bot app's usage screen (the
+        // same pool), never a different number.
+        let grokBotUsage = NSMenuItem(title: "Open usage in Grok Bot app", action: #selector(openGrokBotUsage(_:)), keyEquivalent: "")
         grokBotUsage.target = self
         menu.addItem(grokBotUsage)
         menu.addItem(NSMenuItem.separator())
@@ -1654,6 +1656,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openGrokBotUsage(_ sender: Any?) {
         GrokBotSwitcher.openUsage()
+    }
+
+    /// Opens Grok's own usage screen (grok.com) in the main window. This is the
+    /// unified usage pool shared by Grok, Grok Bot and the Terminal.
+    @objc func openGrokUsage(_ sender: Any?) {
+        showMainWindow(nil)
+        updateMode(to: .chat)
+        if let url = URL(string: "https://grok.com/?_s=usage") {
+            webView.load(URLRequest(url: url))
+        }
     }
 
     @objc func showHandoffInbox(_ sender: Any?) {
