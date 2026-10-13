@@ -642,6 +642,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func usagePercentChanged(_ note: Notification) {
         refreshUsageStatusButton()
         refreshDockBadge()
+        for view in grokWebViewsForUsageBolt() {
+            GrokUsageBadge.pushTooltip(into: view)
+        }
     }
 
     func refreshDockBadge() {
@@ -675,6 +678,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .foregroundColor: waiting ? NSColor.systemYellow : NSColor.systemGreen
         ]))
         button.attributedTitle = title
+        let percent = UserDefaults.standard.object(forKey: GrokUsageBadge.percentStorageKey) as? Int
+        button.toolTip = UsagePaceStore.tooltip(percent: percent)
     }
 
     private func rebuildStatusMenu(recent: [(title: String, href: String)]? = nil) {

@@ -79,6 +79,29 @@ enum GrokUsageBadge {
             }
             #endif
         })
+        pushTooltip(into: webView)
+    }
+
+    /// Pushes the native pace + reset tooltip (computed in Swift) onto the DOM bolt's
+    /// hover title, so hovering the bolt surfaces reset time and pace on/ahead/behind.
+    static func pushTooltip(into webView: WKWebView) {
+        guard let host = webView.url?.host?.lowercased(),
+              host == "grok.com" || host.hasSuffix(".grok.com") else {
+            return
+        }
+        let percent = UserDefaults.standard.object(forKey: percentStorageKey) as? Int
+        let tooltip = UsagePaceStore.tooltip(percent: percent)
+        guard let data = try? JSONSerialization.data(withJSONObject: [tooltip]),
+              let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        let js = """
+        (function(){
+          window.__grokUsageTooltip = \(json)[0];
+          if (typeof window.__grokUsageBoltRender === "function") { window.__grokUsageBoltRender(); }
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     /// Kept as a compatibility hook for older settings notifications. Usage is
@@ -1196,8 +1219,12 @@ enum GrokUsageBadge {
               ? window.__grokUsageState.percent
               : state.percent;
             bolt.textContent = currentPercent == null ? "\\u03DF" : "\\u03DF " + currentPercent + "%";
-            bolt.setAttribute("aria-label", currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)");
-            bolt.title = currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)";
+            var usageLabel = currentPercent == null ? "Open usage details" : "Open usage details (" + currentPercent + "% used)";
+            bolt.setAttribute("aria-label", usageLabel);
+            // Prefer the native pace + reset tooltip Swift pushes; fall back to the usage label.
+            bolt.title = (typeof window.__grokUsageTooltip === "string" && window.__grokUsageTooltip.length > 0)
+              ? window.__grokUsageTooltip
+              : usageLabel;
             if (currentPercent != null) {
               if (currentPercent > 85) bolt.setAttribute("data-level", "danger");
               else if (currentPercent >= 60) bolt.setAttribute("data-level", "warn");
@@ -1717,8 +1744,57 @@ enum UsagePaceStore {
         Double(percent) - expectedPercent(at: date)
     }
 
+    /// Where usage sits relative to even weekly pacing.
+    enum PaceState: Equatable {
+        case onPace
+        case ahead
+        case behind
+
+        /// Short human label, e.g. "on pace" / "ahead of pace" / "behind pace".
+        var label: String {
+            switch self {
+            case .onPace: return "on pace"
+            case .ahead: return "ahead of pace"
+            case .behind: return "behind pace"
+            }
+        }
+    }
+
+    /// Three-state pace relative to even weekly pacing. Within ±0.5 points counts as on pace.
+    static func paceState(percent: Int, at date: Date = Date()) -> PaceState {
+        let ahead = pointsAhead(percent: percent, at: date)
+        if ahead > 0.5 { return .ahead }
+        if ahead < -0.5 { return .behind }
+        return .onPace
+    }
+
     static func paceLabel(percent: Int, at date: Date = Date()) -> String {
-        pointsAhead(percent: percent, at: date) > 0.5 ? "ahead of pace" : "on pace"
+        paceState(percent: percent, at: date).label
+    }
+
+    /// When the current weekly quota resets (end of this calendar week).
+    static func resetDate(at date: Date = Date()) -> Date? {
+        Calendar.current.dateInterval(of: .weekOfYear, for: date)?.end
+    }
+
+    /// Human text for the weekly reset, e.g. "Resets in 2 days (Mon)".
+    static func resetDescription(at date: Date = Date()) -> String {
+        guard let reset = resetDate(at: date) else { return "Weekly reset time unknown" }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .full
+        let weekday = DateFormatter()
+        weekday.setLocalizedDateFormatFromTemplate("EEE")
+        return "Resets \(relative.localizedString(for: reset, relativeTo: date)) (\(weekday.string(from: reset)))"
+    }
+
+    /// One-line tooltip combining pace and the weekly reset, e.g.
+    /// "72% used · ahead of pace · Resets in 2 days (Mon)".
+    static func tooltip(percent: Int?, at date: Date = Date()) -> String {
+        let reset = resetDescription(at: date)
+        guard let percent else {
+            return "Usage unknown · \(reset)"
+        }
+        return "\(percent)% used · \(paceState(percent: percent, at: date).label) · \(reset)"
     }
 
     private static func load() -> [Sample] {
@@ -1811,6 +1887,10 @@ struct UsagePopoverView: View {
         return "\(UsagePaceStore.paceLabel(percent: percent)), even weekly pace \(expected) percent"
     }
 
+    private var resetString: String {
+        UsagePaceStore.resetDescription()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -1842,6 +1922,10 @@ struct UsagePopoverView: View {
                     .foregroundColor(.secondary)
                     .accessibilityLabel(paceAccessibility(for: percent))
             }
+
+            Text(resetString)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
 
             Divider()
 
