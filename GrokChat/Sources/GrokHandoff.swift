@@ -93,6 +93,11 @@ enum GrokHandoff {
         return FolderSet(root: root, inbox: named["inbox"], outbox: named["outbox"], done: named["done"])
     }
 
+    /// The last `limit` handoffs received, i.e. the newest files in the inbox folder.
+    static func latestHandoffs(in folders: FolderSet?, limit: Int = 5) -> [ListedFile] {
+        newestFiles(in: folders?.inbox, limit: limit)
+    }
+
     static func newestFiles(in folder: URL?, limit: Int = 8) -> [ListedFile] {
         guard let folder, let urls = try? FileManager.default.contentsOfDirectory(
             at: folder,
@@ -322,6 +327,7 @@ final class GrokHandoffPanel: NSWindowController, NSWindowDelegate {
             with: "~"
         )
         openURLs = []
+        addSection("Last 5 handoffs", files: GrokHandoff.latestHandoffs(in: folders))
         addSection("Inbox", files: GrokHandoff.newestFiles(in: folders.inbox))
         addSection("Outbox", files: GrokHandoff.newestFiles(in: folders.outbox))
         addSection("Done", files: GrokHandoff.newestFiles(in: folders.done))

@@ -179,6 +179,7 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
             action("Open Bot Switcher") { $0.showBotSwitcher(nil) },
             action("Grok Bot Routines") { _ in GrokBotSwitcher.openRoutines() },
             action("Grok Bot Usage") { _ in GrokBotSwitcher.openUsage() },
+            action("Handoff Inbox") { $0.showHandoffInbox(nil) },
             action("Send Terminal Selection to Grok") { $0.sendTerminalSelection(nil) },
             action("Keyboard Shortcuts") { $0.showShortcutCheatSheet(nil) },
             action("Settings") { $0.showSettings(nil) },
