@@ -320,7 +320,12 @@ enum GrokBotSwitcher {
     /// the key is absent. Each row is a `[String: String]` with a required `name`
     /// and an optional `url`; a `url` is only kept when it passes `isAllowedBotURL`.
     static func configuredBots() -> [BotEntry] {
-        let rows = (UserDefaults.standard.array(forKey: switcherBotsKey) as? [[String: String]]) ?? defaultSwitcherBots
+        return bots(from: rawBots())
+    }
+
+    /// Parses stored rows into `BotEntry` values, keeping a `url` only when it is
+    /// present and passes `isAllowedBotURL`. Pure so Settings and the runtime agree.
+    static func bots(from rows: [[String: String]]) -> [BotEntry] {
         return rows.compactMap { row in
             guard let name = row["name"], !name.isEmpty else { return nil }
             let url: URL?
@@ -331,6 +336,28 @@ enum GrokBotSwitcher {
             }
             return BotEntry(name: name, url: url)
         }
+    }
+
+    /// The raw `[name:…, url:…]` rows backing the switcher, seeded with the defaults
+    /// when the key is absent. This is what the Settings editor reads and rewrites so
+    /// reordering and renaming round-trips through the same storage the runtime uses.
+    static func rawBots() -> [[String: String]] {
+        return (UserDefaults.standard.array(forKey: switcherBotsKey) as? [[String: String]]) ?? defaultSwitcherBots
+    }
+
+    /// Persists edited switcher rows (reordered and/or relabeled). Rows with an empty
+    /// name are dropped; the `url` string is preserved verbatim so an existing bot's
+    /// destination is never altered by a rename. The runtime picks the new order up on
+    /// its next `configuredBots()` read.
+    static func saveRawBots(_ rows: [[String: String]]) {
+        let cleaned: [[String: String]] = rows.compactMap { row in
+            let name = (row["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            var out: [String: String] = ["name": name]
+            if let url = row["url"], !url.isEmpty { out["url"] = url }
+            return out
+        }
+        UserDefaults.standard.set(cleaned, forKey: switcherBotsKey)
     }
 
     /// Opens a validated deep link with NSWorkspace. Opening the `grokbot://` URL

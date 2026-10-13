@@ -23,6 +23,8 @@ class SettingsWindow: NSWindow {
     private var generalRows: NSStackView?
     private var grokRows: NSStackView?
     private var appearanceHost: NSView?
+    private var botsHost: NSView?
+    private var botSwitcherController: BotSwitcherSettingsController?
     
     init() {
         super.init(
@@ -61,12 +63,17 @@ class SettingsWindow: NSWindow {
         appearanceItem.label = "Appearance"
         appearanceItem.view = createAppearanceView()
         
+        let botsItem = NSTabViewItem(identifier: "bots")
+        botsItem.label = "Bot Switcher"
+        botsItem.view = createBotsView()
+
         let grokItem = NSTabViewItem(identifier: "grok")
         grokItem.label = "Grok Build"
         grokItem.view = createGrokView()
         
         tabView.addTabViewItem(generalItem)
         tabView.addTabViewItem(appearanceItem)
+        tabView.addTabViewItem(botsItem)
         tabView.addTabViewItem(grokItem)
         settingsTabView = tabView
         root.addSubview(tabView)
@@ -82,6 +89,14 @@ class SettingsWindow: NSWindow {
         return hosting
     }
     
+    private func createBotsView() -> NSView {
+        let controller = BotSwitcherSettingsController()
+        botSwitcherController = controller
+        let view = controller.makeView()
+        botsHost = view
+        return view
+    }
+
     private func createGeneralView() -> NSView {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 350))
         
@@ -537,13 +552,18 @@ class SettingsWindow: NSWindow {
         let appearanceText = "appearance glass opacity tint font border chrome"
         let appearanceMatches = query.isEmpty || appearanceText.contains(query)
         appearanceHost?.isHidden = !appearanceMatches
+        let botsText = "bot switcher reorder drag rename label grok bot"
+        let botsMatches = query.isEmpty || botsText.contains(query)
+        botsHost?.isHidden = !botsMatches
         guard !query.isEmpty, let tabView = settingsTabView else { return }
         if stackHasVisibleRow(generalRows) {
             tabView.selectTabViewItem(at: 0)
         } else if appearanceMatches {
             tabView.selectTabViewItem(at: 1)
-        } else if stackHasVisibleRow(grokRows) {
+        } else if botsMatches {
             tabView.selectTabViewItem(at: 2)
+        } else if stackHasVisibleRow(grokRows) {
+            tabView.selectTabViewItem(at: 3)
         }
     }
 
@@ -609,5 +629,207 @@ extension SettingsWindow: NSSearchFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSSearchField else { return }
         applySettingsFilter(field.stringValue)
+    }
+}
+
+/// Settings pane for the Grok Bot switcher list: rename a bot's label inline and
+/// drag rows to reorder. Edits persist back to the same `grok.bot.switcherBots`
+/// storage the switcher reads, so the menu and command palette pick up the new
+/// order/labels on their next read. Destinations (the per-bot deep links) are shown
+/// read-only and never changed by a rename.
+final class BotSwitcherSettingsController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private static let dragType = NSPasteboard.PasteboardType("com.grok.botswitcher.row")
+
+    private var rows: [[String: String]] = []
+    private let tableView = NSTableView()
+
+    func makeView() -> NSView {
+        rows = GrokBotSwitcher.rawBots()
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 436))
+
+        let title = NSTextField(labelWithString: "Grok Bot Switcher")
+        title.font = .systemFont(ofSize: 13, weight: .bold)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.setAccessibilityLabel("Grok Bot Switcher")
+        container.addSubview(title)
+
+        let hint = NSTextField(wrappingLabelWithString: "Drag rows to reorder. Double-click a label to rename it. The switcher menu and command palette follow this order.")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(hint)
+
+        let labelColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("label"))
+        labelColumn.title = "Label"
+        labelColumn.width = 150
+        labelColumn.minWidth = 100
+        labelColumn.isEditable = true
+        tableView.addTableColumn(labelColumn)
+
+        let destColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("destination"))
+        destColumn.title = "Destination"
+        destColumn.width = 280
+        destColumn.minWidth = 160
+        destColumn.isEditable = false
+        tableView.addTableColumn(destColumn)
+
+        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.allowsColumnReordering = false
+        tableView.allowsMultipleSelection = false
+        tableView.rowHeight = 22
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.setAccessibilityLabel("Grok Bot switcher list")
+        tableView.registerForDraggedTypes([Self.dragType])
+        tableView.setDraggingSourceOperationMask(.move, forLocal: true)
+        // Double-click a cell to edit the label; the destination column is not editable.
+        tableView.doubleAction = #selector(editSelectedLabel)
+        tableView.target = self
+
+        let scroll = NSScrollView()
+        scroll.documentView = tableView
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(scroll)
+
+        let resetButton = NSButton(title: "Reset to Defaults", target: self, action: #selector(resetToDefaults))
+        resetButton.bezelStyle = .rounded
+        resetButton.translatesAutoresizingMaskIntoConstraints = false
+        resetButton.setAccessibilityLabel("Reset bot switcher to defaults")
+        container.addSubview(resetButton)
+
+        NSLayoutConstraint.activate([
+            title.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            title.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            title.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+
+            hint.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 6),
+            hint.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            hint.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+
+            scroll.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 12),
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            scroll.bottomAnchor.constraint(equalTo: resetButton.topAnchor, constant: -12),
+
+            resetButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            resetButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20)
+        ])
+
+        return container
+    }
+
+    // MARK: - Data source
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        return rows.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let tableColumn, rows.indices.contains(row) else { return nil }
+        let identifier = tableColumn.identifier
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView ?? {
+            let view = NSTableCellView()
+            let field = NSTextField()
+            field.isBordered = false
+            field.drawsBackground = false
+            field.translatesAutoresizingMaskIntoConstraints = false
+            view.textField = field
+            view.addSubview(field)
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 2),
+                field.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -2),
+                field.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            ])
+            view.identifier = identifier
+            return view
+        }()
+
+        let bot = rows[row]
+        if identifier.rawValue == "label" {
+            cell.textField?.stringValue = bot["name"] ?? ""
+            cell.textField?.isEditable = true
+            cell.textField?.isSelectable = true
+            cell.textField?.target = self
+            cell.textField?.action = #selector(labelEdited(_:))
+            cell.textField?.tag = row
+            cell.textField?.setAccessibilityLabel("Bot label")
+        } else {
+            let destination = (bot["url"] ?? "").isEmpty ? "Open Grok Bot" : (bot["url"] ?? "")
+            cell.textField?.stringValue = destination
+            cell.textField?.isEditable = false
+            cell.textField?.isSelectable = false
+            cell.textField?.textColor = .secondaryLabelColor
+            cell.textField?.lineBreakMode = .byTruncatingMiddle
+            cell.textField?.toolTip = destination
+            cell.textField?.setAccessibilityLabel("Bot destination")
+        }
+        return cell
+    }
+
+    // MARK: - Drag reorder
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        let item = NSPasteboardItem()
+        item.setString(String(row), forType: Self.dragType)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        return dropOperation == .above ? .move : []
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        guard let data = info.draggingPasteboard.pasteboardItems?.first?.string(forType: Self.dragType),
+              let sourceRow = Int(data), rows.indices.contains(sourceRow) else { return false }
+
+        let moving = rows[sourceRow]
+        var target = row
+        rows.remove(at: sourceRow)
+        if sourceRow < target { target -= 1 }
+        target = max(0, min(target, rows.count))
+        rows.insert(moving, at: target)
+
+        persist()
+        tableView.reloadData()
+        tableView.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
+        return true
+    }
+
+    // MARK: - Editing
+
+    @objc private func labelEdited(_ sender: NSTextField) {
+        let index = sender.tag
+        guard rows.indices.contains(index) else { return }
+        let newName = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if newName.isEmpty {
+            // Reject an empty rename: restore the previous label.
+            sender.stringValue = rows[index]["name"] ?? ""
+            return
+        }
+        rows[index]["name"] = newName
+        persist()
+    }
+
+    @objc private func editSelectedLabel() {
+        let row = tableView.clickedRow
+        guard row >= 0 else { return }
+        if let labelColumn = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "label" }) {
+            tableView.editColumn(labelColumn, row: row, with: nil, select: true)
+        }
+    }
+
+    @objc private func resetToDefaults() {
+        rows = GrokBotSwitcher.defaultSwitcherBots
+        persist()
+        tableView.reloadData()
+    }
+
+    private func persist() {
+        GrokBotSwitcher.saveRawBots(rows)
+        // Re-read so the in-memory rows match exactly what was stored (empty names dropped).
+        rows = GrokBotSwitcher.rawBots()
     }
 }
