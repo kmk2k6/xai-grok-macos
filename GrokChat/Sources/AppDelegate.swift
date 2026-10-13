@@ -1831,8 +1831,13 @@ extension AppDelegate: NSToolbarDelegate {
             view.layer?.masksToBounds = true
             view.setAccessibilityLabel("Mode switcher")
             item.view = view
-            item.minSize = barSize
-            item.maxSize = barSize
+            // NSToolbarItem.minSize/maxSize are deprecated; pin the hosting view to the
+            // same fixed size via constraints so the system measures it (same 430x30).
+            view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                view.widthAnchor.constraint(equalToConstant: barSize.width),
+                view.heightAnchor.constraint(equalToConstant: barSize.height)
+            ])
             return item
         }
         

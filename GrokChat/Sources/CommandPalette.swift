@@ -86,7 +86,7 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
         filtered = commands
         table.reloadData()
         makeKeyAndOrderFront(nil)
-        makeFirstResponder(search)
+        _ = makeFirstResponder(search)
         NSApp.activate(ignoringOtherApps: true)
     }
 
