@@ -879,6 +879,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         botSwitcherSubmenu.delegate = self
         botSwitcherItem.submenu = botSwitcherSubmenu
         fileMenu.addItem(botSwitcherItem)
+        // Keyboard shortcut to open the bot switcher without the mouse.
+        let openBotSwitcherItem = NSMenuItem(
+            title: "Open Bot Switcher",
+            action: #selector(showBotSwitcher(_:)),
+            keyEquivalent: "y"
+        )
+        openBotSwitcherItem.keyEquivalentModifierMask = [.command, .shift]
+        openBotSwitcherItem.target = self
+        fileMenu.addItem(openBotSwitcherItem)
         let routinesItem = NSMenuItem(
             title: "Grok Bot Routines",
             action: #selector(showGrokBotRoutines(_:)),
@@ -1601,6 +1610,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(item)
             }
         }
+    }
+
+    /// Keyboard entry point for the bot switcher (Cmd+Shift+Y). Pops the current
+    /// "Grok Bots" list up as a free-standing menu so the switcher is reachable
+    /// without the mouse; the user then arrows to a bot and hits Return. The menu
+    /// is rebuilt here so it reflects live edits to `grok.bot.switcherBots`.
+    @objc func showBotSwitcher(_ sender: Any?) {
+        let menu = buildBotSwitcherMenu()
+        showMainWindow(nil)
+        let location: NSPoint
+        let view: NSView?
+        if let contentView = window.contentView {
+            // Drop the menu just under the top-left of the content area.
+            location = NSPoint(x: 12, y: contentView.bounds.maxY - 8)
+            view = contentView
+        } else {
+            location = NSEvent.mouseLocation
+            view = nil
+        }
+        menu.popUp(positioning: nil, at: location, in: view)
     }
 
     /// Opens the bot entry whose index is carried in `representedObject`, or just

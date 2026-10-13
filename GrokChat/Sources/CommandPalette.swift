@@ -176,6 +176,7 @@ final class CommandPalettePanel: NSPanel, NSTableViewDataSource, NSTableViewDele
             action("Screenshot to Grok") { $0.captureScreenRegion() },
             action("Build Terminal") { $0.showBuildTerminal(nil) },
             action("Grok Bot") { _ in GrokBotSwitcher.launchOrBringForward() },
+            action("Open Bot Switcher") { $0.showBotSwitcher(nil) },
             action("Grok Bot Routines") { _ in GrokBotSwitcher.openRoutines() },
             action("Grok Bot Usage") { _ in GrokBotSwitcher.openUsage() },
             action("Send Terminal Selection to Grok") { $0.sendTerminalSelection(nil) },
