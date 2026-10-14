@@ -1,9 +1,11 @@
 // GrokChatTests.swift
 // Unit tests for GrokChat core functionality
-// Run with: /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift GrokChat/Tests/GrokChatTests.swift
-// Or after fixing toolchain: swift GrokChat/Tests/GrokChatTests.swift
+// Converted to an XCTest target so `swift test` / `xcodebuild test` runs them.
+// The standalone mirror types below keep the pure logic independent of the
+// full app sources.
 
 import Foundation
+import XCTest
 
 // MARK: - ModelRegistry (Copy for standalone testing)
 
@@ -84,30 +86,18 @@ class ModelRegistry {
     }
 }
 
-// MARK: - Test Framework (Minimal)
+// MARK: - Test Framework (forwards to XCTest)
 
-var testsPassed = 0
-var testsFailed = 0
-
-func assertEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: String = "", file: String = #file, line: Int = #line) {
-    if actual == expected {
-        testsPassed += 1
-        print("✅ PASS: \(message.isEmpty ? "Assertion" : message)")
-    } else {
-        testsFailed += 1
-        print("❌ FAIL: \(message.isEmpty ? "Assertion" : message)")
-        print("   Expected: \(expected)")
-        print("   Actual:   \(actual)")
-        print("   at \(file):\(line)")
-    }
+func assertEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(actual, expected, message, file: file, line: line)
 }
 
-func assertTrue(_ condition: Bool, _ message: String = "", file: String = #file, line: Int = #line) {
-    assertEqual(condition, true, message, file: file, line: line)
+func assertTrue(_ condition: Bool, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertTrue(condition, message, file: file, line: line)
 }
 
-func assertFalse(_ condition: Bool, _ message: String = "", file: String = #file, line: Int = #line) {
-    assertEqual(condition, false, message, file: file, line: line)
+func assertFalse(_ condition: Bool, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertFalse(condition, message, file: file, line: line)
 }
 
 // MARK: - ModelRegistry Tests
@@ -568,39 +558,222 @@ func testGitFailureMessagePrefersStderr() {
     assertEqual(GitServiceMirror.failureMessage(stdout: " fallback ", stderr: ""), "fallback", "Falls back to stdout when stderr empty")
 }
 
-// MARK: - Run All Tests
+// MARK: - BotSwitcher mirror (pure parsing + URL allow-list)
 
-print("🧪 GrokChat Unit Tests")
-print("=" .padding(toLength: 50, withPad: "=", startingAt: 0))
+enum BotSwitcherMirror {
+    static let deepLinkScheme = "grokbot"
+    static let allowedDeepLinkPaths: Set<String> = [
+        "/app/v1/agent",
+        "/app/v1/sidebar",
+        "/app/v1/settings",
+    ]
+    static let allowedURLHosts: Set<String> = ["grok.com", "x.ai"]
 
-testModelRegistryFriendlyNames()
-testModelRegistryShortNames()
-testModelRegistryPricing()
-testModelRegistryCostCalculation()
-testModelRegistryContextWindow()
-testSafetyModeBlocksDangerousCommands()
-testSafetyModeAllowsSafeCommands()
-testGrokBuildSessionSuperHeavyTier()
-testGrokBuildCLISessionDetectionLive()
-testGrokBuildResolvedTokenPrefersOAuth()
-testResolveModelAutoPrefersGrokBuild()
-testParseCreateDirectoryRegistryFormat()
-testParseRunCommandRegistryFormat()
-do {
-    try testCreateDirectoryE2E()
-} catch {
-    assertTrue(false, "create_directory e2e failed: \(error)")
+    struct BotEntry: Equatable {
+        var name: String
+        var url: URL?
+    }
+
+    static func isAllowedBotURL(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case deepLinkScheme:
+            let host = url.host.map { "/" + $0 } ?? ""
+            let fullPath = host + url.path
+            return allowedDeepLinkPaths.contains(where: { fullPath == $0 || fullPath.hasPrefix($0 + "/") })
+        case "https":
+            guard let host = url.host?.lowercased() else { return false }
+            return allowedURLHosts.contains(where: { host == $0 || host.hasSuffix("." + $0) })
+        default:
+            return false
+        }
+    }
+
+    /// Mirrors GrokBotSwitcher.bots(from:) — drops empty names, keeps a URL only
+    /// when present and allowed, and preserves row order.
+    static func bots(from rows: [[String: String]]) -> [BotEntry] {
+        rows.compactMap { row in
+            guard let name = row["name"], !name.isEmpty else { return nil }
+            let url: URL?
+            if let raw = row["url"], !raw.isEmpty, let parsed = URL(string: raw), isAllowedBotURL(parsed) {
+                url = parsed
+            } else {
+                url = nil
+            }
+            return BotEntry(name: name, url: url)
+        }
+    }
 }
-testChatModeBlocksMutatingTools()
-testAgentAutoExecutesMutatingTools()
-testGrokCLIResolverFindsBinary()
-testGitWorktreePathDerivation()
-testGitWorktreeAddArguments()
-testGitParseBranchList()
-testGitNormalizeBranchName()
-testGitFailureMessagePrefersStderr()
 
-print("\n" + "=".padding(toLength: 50, withPad: "=", startingAt: 0))
-print("📊 Results: \(testsPassed) passed, \(testsFailed) failed")
-print(testsFailed == 0 ? "✅ All tests passed!" : "❌ Some tests failed")
+// MARK: - Handoff inbox ordering mirror
+
+enum HandoffMirror {
+    struct ListedFile: Equatable {
+        var name: String
+        var modified: Date
+    }
+
+    /// Mirrors GrokHandoff.newestFiles — newest first by modified date, capped
+    /// at `limit`.
+    static func newestFiles(_ files: [ListedFile], limit: Int = 8) -> [ListedFile] {
+        Array(files.sorted { $0.modified > $1.modified }.prefix(limit))
+    }
+
+    /// Mirrors GrokHandoff.latestHandoffs — the newest `limit` inbox files.
+    static func latestHandoffs(_ files: [ListedFile], limit: Int = 5) -> [ListedFile] {
+        newestFiles(files, limit: limit)
+    }
+}
+
+// MARK: - Usage parsing mirror
+
+enum UsageMirror {
+    /// Clamp a raw usage ratio/percent into 0...100. Mirrors the app's handling
+    /// where a value in (0,1) is treated as a fraction and scaled to a percent.
+    static func normalizedPercent(_ raw: Double) -> Int {
+        let pct = (raw > 0 && raw < 1) ? raw * 100 : raw
+        return Int(max(0, min(100, pct.rounded())))
+    }
+
+    /// Pull a usage percent out of a JSON-ish dictionary. Prefers an explicit
+    /// integer `percent`, else a fractional `ratio`/`rate`/`pct`.
+    static func percent(from body: [String: Any]) -> Int? {
+        if let p = body["percent"] as? Int { return max(0, min(100, p)) }
+        if let p = body["percent"] as? Double { return normalizedPercent(p) }
+        for key in ["ratio", "rate", "pct"] {
+            if let v = body[key] as? Double { return normalizedPercent(v) }
+        }
+        return nil
+    }
+
+    /// Which notification thresholds a new percent crosses, given the previous
+    /// already-notified flags. Mirrors checkAndNotifyUsageCrossing (80% / 95%).
+    static func crossings(percent: Int, notified80: Bool, notified95: Bool) -> [Int] {
+        var out: [Int] = []
+        if percent >= 80 && !notified80 { out.append(80) }
+        if percent >= 95 && !notified95 { out.append(95) }
+        return out
+    }
+}
+
+// MARK: - XCTest entry point
+
+/// Runs every free `test…` function above as a discoverable XCTest, plus the
+/// new bot-switcher / handoff-ordering / usage-parsing tests.
+final class GrokChatTests: XCTestCase {
+    func testModelRegistryFriendlyNames_() { testModelRegistryFriendlyNames() }
+    func testModelRegistryShortNames_() { testModelRegistryShortNames() }
+    func testModelRegistryPricing_() { testModelRegistryPricing() }
+    func testModelRegistryCostCalculation_() { testModelRegistryCostCalculation() }
+    func testModelRegistryContextWindow_() { testModelRegistryContextWindow() }
+    func testSafetyModeBlocksDangerousCommands_() { testSafetyModeBlocksDangerousCommands() }
+    func testSafetyModeAllowsSafeCommands_() { testSafetyModeAllowsSafeCommands() }
+    func testGrokBuildSessionSuperHeavyTier_() { testGrokBuildSessionSuperHeavyTier() }
+    func testGrokBuildCLISessionDetectionLive_() { testGrokBuildCLISessionDetectionLive() }
+    func testGrokBuildResolvedTokenPrefersOAuth_() { testGrokBuildResolvedTokenPrefersOAuth() }
+    func testResolveModelAutoPrefersGrokBuild_() { testResolveModelAutoPrefersGrokBuild() }
+    func testParseCreateDirectoryRegistryFormat_() { testParseCreateDirectoryRegistryFormat() }
+    func testParseRunCommandRegistryFormat_() { testParseRunCommandRegistryFormat() }
+    func testCreateDirectoryE2E_() throws { try testCreateDirectoryE2E() }
+    func testChatModeBlocksMutatingTools_() { testChatModeBlocksMutatingTools() }
+    func testAgentAutoExecutesMutatingTools_() { testAgentAutoExecutesMutatingTools() }
+    func testGrokCLIResolverFindsBinary_() { testGrokCLIResolverFindsBinary() }
+    func testGitWorktreePathDerivation_() { testGitWorktreePathDerivation() }
+    func testGitWorktreeAddArguments_() { testGitWorktreeAddArguments() }
+    func testGitParseBranchList_() { testGitParseBranchList() }
+    func testGitNormalizeBranchName_() { testGitNormalizeBranchName() }
+    func testGitFailureMessagePrefersStderr_() { testGitFailureMessagePrefersStderr() }
+
+    // MARK: Bot switcher list
+
+    func testBotSwitcherKeepsOrderAndAllowedURLs() {
+        let rows: [[String: String]] = [
+            ["name": "App", "url": "grokbot://app/v1/agent?id=abc"],
+            ["name": "Docs", "url": "https://grok.com/help"],
+            ["name": "NoURL"],
+        ]
+        let bots = BotSwitcherMirror.bots(from: rows)
+        XCTAssertEqual(bots.map(\.name), ["App", "Docs", "NoURL"], "Order preserved")
+        XCTAssertNotNil(bots[0].url)
+        XCTAssertNotNil(bots[1].url)
+        XCTAssertNil(bots[2].url, "Missing url stays nil")
+    }
+
+    func testBotSwitcherDropsEmptyNames() {
+        let rows: [[String: String]] = [
+            ["name": ""],
+            ["url": "https://grok.com"],
+            ["name": "Keep"],
+        ]
+        XCTAssertEqual(BotSwitcherMirror.bots(from: rows).map(\.name), ["Keep"])
+    }
+
+    func testBotSwitcherRejectsDisallowedURLs() {
+        let rows: [[String: String]] = [
+            ["name": "Evil", "url": "https://evil.example.com"],
+            ["name": "BadScheme", "url": "file:///etc/passwd"],
+            ["name": "BadPath", "url": "grokbot://app/v1/danger"],
+        ]
+        let bots = BotSwitcherMirror.bots(from: rows)
+        XCTAssertEqual(bots.count, 3, "Rows kept but their bad URLs dropped")
+        XCTAssertTrue(bots.allSatisfy { $0.url == nil })
+    }
+
+    func testIsAllowedBotURL() {
+        XCTAssertTrue(BotSwitcherMirror.isAllowedBotURL(URL(string: "grokbot://app/v1/agent?id=1")!))
+        XCTAssertTrue(BotSwitcherMirror.isAllowedBotURL(URL(string: "grokbot://app/v1/settings")!))
+        XCTAssertTrue(BotSwitcherMirror.isAllowedBotURL(URL(string: "https://grok.com/x")!))
+        XCTAssertTrue(BotSwitcherMirror.isAllowedBotURL(URL(string: "https://sub.x.ai")!))
+        XCTAssertFalse(BotSwitcherMirror.isAllowedBotURL(URL(string: "grokbot://app/v1/other")!))
+        XCTAssertFalse(BotSwitcherMirror.isAllowedBotURL(URL(string: "https://notgrok.com")!))
+    }
+
+    // MARK: Handoff inbox ordering
+
+    func testHandoffNewestFirst() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let files = [
+            HandoffMirror.ListedFile(name: "old", modified: base),
+            HandoffMirror.ListedFile(name: "new", modified: base.addingTimeInterval(100)),
+            HandoffMirror.ListedFile(name: "mid", modified: base.addingTimeInterval(50)),
+        ]
+        XCTAssertEqual(HandoffMirror.newestFiles(files).map(\.name), ["new", "mid", "old"])
+    }
+
+    func testHandoffRespectsLimit() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let files = (0..<10).map {
+            HandoffMirror.ListedFile(name: "f\($0)", modified: base.addingTimeInterval(Double($0)))
+        }
+        let latest = HandoffMirror.latestHandoffs(files, limit: 3)
+        XCTAssertEqual(latest.map(\.name), ["f9", "f8", "f7"])
+    }
+
+    func testHandoffEmpty() {
+        XCTAssertTrue(HandoffMirror.newestFiles([]).isEmpty)
+    }
+
+    // MARK: Usage parsing
+
+    func testUsageNormalizePercent() {
+        XCTAssertEqual(UsageMirror.normalizedPercent(0.42), 42, "Fraction scaled to percent")
+        XCTAssertEqual(UsageMirror.normalizedPercent(42), 42, "Already a percent")
+        XCTAssertEqual(UsageMirror.normalizedPercent(150), 100, "Clamped high")
+        XCTAssertEqual(UsageMirror.normalizedPercent(-5), 0, "Clamped low")
+    }
+
+    func testUsagePercentFromBody() {
+        XCTAssertEqual(UsageMirror.percent(from: ["percent": 73]), 73)
+        XCTAssertEqual(UsageMirror.percent(from: ["ratio": 0.5]), 50)
+        XCTAssertEqual(UsageMirror.percent(from: ["pct": 0.9]), 90)
+        XCTAssertNil(UsageMirror.percent(from: ["unrelated": 1]))
+    }
+
+    func testUsageCrossings() {
+        XCTAssertEqual(UsageMirror.crossings(percent: 85, notified80: false, notified95: false), [80])
+        XCTAssertEqual(UsageMirror.crossings(percent: 96, notified80: true, notified95: false), [95])
+        XCTAssertEqual(UsageMirror.crossings(percent: 96, notified80: false, notified95: false), [80, 95])
+        XCTAssertEqual(UsageMirror.crossings(percent: 50, notified80: false, notified95: false), [])
+    }
+}
+
 
