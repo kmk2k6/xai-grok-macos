@@ -131,6 +131,16 @@ class SettingsWindow: NSWindow {
         let autoUpdateToggle = NSButton(checkboxWithTitle: "Automatically check for updates", target: self, action: #selector(toggleAutoUpdate(_:)))
         autoUpdateToggle.state = UpdateManager.shared.updater.automaticallyChecksForUpdates ? .on : .off
         stack.addArrangedSubview(autoUpdateToggle)
+
+        // Experimental terminal panel (off by default).
+        let terminalToggle = NSButton(
+            checkboxWithTitle: "Show terminal panel (experimental)",
+            target: self,
+            action: #selector(toggleTerminalPanel(_:))
+        )
+        terminalToggle.state = UserDefaults.standard.bool(forKey: TerminalPanelController.enabledKey) ? .on : .off
+        terminalToggle.toolTip = "Off by default. Docks a terminal running your login shell in ~/src at the bottom of the chat window. It never covers grok.com's controls."
+        stack.addArrangedSubview(terminalToggle)
         
         stack.addArrangedSubview(createSeparator())
         
@@ -430,6 +440,16 @@ class SettingsWindow: NSWindow {
         UserDefaults.standard.set(isOn, forKey: "showMenuBarIcon")
         if let appDelegate = NSApp.delegate as? AppDelegate {
             if isOn { appDelegate.showStatusBar() } else { appDelegate.hideStatusBar() }
+        }
+    }
+
+    @objc func toggleTerminalPanel(_ sender: NSButton) {
+        let isOn = sender.state == .on
+        UserDefaults.standard.set(isOn, forKey: TerminalPanelController.enabledKey)
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            // Full relayout: restores the web view to full bounds when turning
+            // off, or insets it above the panel when turning on.
+            appDelegate.layoutChromeStrip()
         }
     }
     

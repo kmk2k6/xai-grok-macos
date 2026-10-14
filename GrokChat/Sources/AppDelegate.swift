@@ -126,6 +126,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // View Management
     var mainContainerView: NSView!
+    /// Experimental, opt-in bottom terminal panel (SwiftTerm). Off by default.
+    let terminalPanel = TerminalPanelController()
     /// Titlebar/toolbar glass strip only — web content stays opaque.
     var chromeEffectView: NSVisualEffectView!
     var chromeTintView: NSView!
@@ -564,6 +566,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         content.addSubview(chromeEffectView, positioned: .above, relativeTo: nil)
         content.addSubview(chromeTintView, positioned: .above, relativeTo: chromeEffectView)
         content.addSubview(chromeBorderView, positioned: .above, relativeTo: chromeTintView)
+        layoutTerminalPanel()
+    }
+
+    /// Docks the experimental terminal panel at the bottom of the chat web view
+    /// and insets the web content above it so it never covers grok.com's own
+    /// controls. A no-op (and removes the panel) when the toggle is off or we're
+    /// not in chat mode.
+    func layoutTerminalPanel() {
+        guard let content = mainContainerView else { return }
+        guard currentMode == .chat, TerminalPanelController.isEnabled else {
+            terminalPanel.container?.removeFromSuperview()
+            return
+        }
+        let height = terminalPanel.layout(in: content)
+        guard height > 0 else { return }
+        // Raise the terminal above the web view but below the chrome strip.
+        if let box = terminalPanel.container {
+            content.addSubview(box, positioned: .below, relativeTo: chromeEffectView)
+        }
+        // Inset the active chat web view and the tab strip upward by the panel
+        // height so nothing is hidden behind the terminal.
+        for tab in chatTabs where !tab.webView.isHidden {
+            var f = tab.webView.frame
+            let newY = height
+            f.origin.y = newY
+            f.size.height = max(0, f.size.height - newY)
+            tab.webView.frame = f
+        }
     }
 
     /// Keep page content under the titlebar so the mode switcher cannot cover site controls.
